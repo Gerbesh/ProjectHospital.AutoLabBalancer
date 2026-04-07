@@ -16,7 +16,7 @@ namespace ProjectHospital.AutoLabBalancer
     {
         public const string PluginGuid = "local.projecthospital.autolabbalancer";
         public const string PluginName = "Project Hospital Productivity Tweaks";
-        public const string PluginVersion = "0.13.5";
+        public const string PluginVersion = "0.14.0";
 
         private AutoLabBalancerConfig _config;
         private Harmony _harmony;
@@ -63,6 +63,7 @@ namespace ProjectHospital.AutoLabBalancer
             }
 
             PerformanceProfiler.Tick(Time.realtimeSinceStartup);
+            SchedulingEngineService.Tick(Time.realtimeSinceStartup);
 
             if (Time.realtimeSinceStartup < _nextTickAt)
             {
@@ -248,6 +249,7 @@ namespace ProjectHospital.AutoLabBalancer
             DrawToggle(_config.EnablePerformanceProfiler, ModText.T("EnablePerformanceProfiler"));
             DrawToggle(_config.ProfilerAutoResetAfterLog, ModText.T("ProfilerAutoResetAfterLog"));
             DrawToggle(_config.EnablePerformanceOptimizations, ModText.T("EnablePerformanceOptimizations"));
+            DrawToggle(_config.EnableSchedulingEngine, ModText.T("EnableSchedulingEngine"));
             DrawToggle(_config.EnableNurseTaskBoard, ModText.T("EnableNurseTaskBoard"));
             GUILayout.Space(8f);
             GUILayout.Label(ModText.T("IntakeControl"));
@@ -393,6 +395,31 @@ namespace ProjectHospital.AutoLabBalancer
                 GUILayout.Label(PerformanceProfiler.FormatSample(sample));
             }
 
+            var scheduling = SchedulingEngineService.Snapshot;
+            if (scheduling != null)
+            {
+                GUILayout.Space(8f);
+                GUILayout.Label(ModText.T("SchedulingEngine"));
+                if (!scheduling.Ready)
+                {
+                    GUILayout.Label(ModText.T("SchedulingEngineNotReady") + scheduling.Warning);
+                }
+                else
+                {
+                    GUILayout.Label(ModText.F("SchedulingEngineLine",
+                        scheduling.Departments,
+                        scheduling.TotalTasks,
+                        scheduling.CriticalTasks,
+                        scheduling.SurgeryTasks,
+                        scheduling.MedicineTasks,
+                        scheduling.TransportTasks,
+                        scheduling.FreeStaff,
+                        scheduling.Staff,
+                        scheduling.RebuildMs.ToString("0.00")));
+                    GUILayout.Label(ModText.T("SchedulingEngineTopBoard") + scheduling.TopBoardSummary);
+                }
+            }
+
             if (GUILayout.Button(ModText.T("PerformanceProfilerReset")))
             {
                 PerformanceProfiler.Reset();
@@ -465,6 +492,10 @@ namespace ProjectHospital.AutoLabBalancer
         public ConfigEntry<float> ProfilerSlowCallMs { get; private set; }
         public ConfigEntry<bool> ProfilerAutoResetAfterLog { get; private set; }
         public ConfigEntry<bool> EnablePerformanceOptimizations { get; private set; }
+        public ConfigEntry<bool> EnableSchedulingEngine { get; private set; }
+        public ConfigEntry<float> SchedulingEngineIntervalSeconds { get; private set; }
+        public ConfigEntry<float> SchedulingEngineMaxSnapshotAgeSeconds { get; private set; }
+        public ConfigEntry<bool> SchedulingEngineDebugLog { get; private set; }
         public ConfigEntry<bool> EnableObjectSearchCache { get; private set; }
         public ConfigEntry<float> ObjectSearchCacheTtlSeconds { get; private set; }
         public ConfigEntry<bool> EnableDoctorSearchCache { get; private set; }
@@ -542,6 +573,10 @@ namespace ProjectHospital.AutoLabBalancer
                 ProfilerSlowCallMs = config.Bind("Performance", "ProfilerSlowCallMs", 5f, "Calls at or above this duration are counted as slow calls."),
                 ProfilerAutoResetAfterLog = config.Bind("Performance", "ProfilerAutoResetAfterLog", false, "When true, reset profiler samples after each periodic log. Leave false for long manual profiling sessions."),
                 EnablePerformanceOptimizations = config.Bind("PerformanceOptimizations", "EnablePerformanceOptimizations", true, "Enable experimental runtime performance optimizations based on short-lived caches and backoff."),
+                EnableSchedulingEngine = config.Bind("PerformanceOptimizations", "EnableSchedulingEngine", true, "Build a central read-only runtime scheduling index for department task boards."),
+                SchedulingEngineIntervalSeconds = config.Bind("PerformanceOptimizations", "SchedulingEngineIntervalSeconds", 0.5f, "How often to rebuild the central scheduling index."),
+                SchedulingEngineMaxSnapshotAgeSeconds = config.Bind("PerformanceOptimizations", "SchedulingEngineMaxSnapshotAgeSeconds", 1.5f, "Maximum scheduling snapshot age before optimizations ignore it."),
+                SchedulingEngineDebugLog = config.Bind("PerformanceOptimizations", "SchedulingEngineDebugLog", false, "Write central scheduling index rebuild summaries to the BepInEx log."),
                 EnableObjectSearchCache = config.Bind("PerformanceOptimizations", "EnableObjectSearchCache", true, "Cache successful free-object searches for a short time."),
                 ObjectSearchCacheTtlSeconds = config.Bind("PerformanceOptimizations", "ObjectSearchCacheTtlSeconds", 0.35f, "TTL for successful object-search cache entries."),
                 EnableDoctorSearchCache = config.Bind("PerformanceOptimizations", "EnableDoctorSearchCache", true, "Cache successful doctor/lab-specialist qualification searches for a short time."),

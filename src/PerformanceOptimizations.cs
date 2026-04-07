@@ -249,6 +249,18 @@ namespace ProjectHospital.AutoLabBalancer
                 return false;
             }
 
+            SchedulingDepartmentBoard schedulingBoard;
+            if (SchedulingEngineService.TryGetDepartmentBoard(department, out schedulingBoard))
+            {
+                if (schedulingBoard.Score > 0)
+                {
+                    NurseIdleBackoff.Remove(nurse);
+                    return false;
+                }
+
+                return ShouldSkipShortBackoff(nurse, NurseIdleBackoff, RuntimeSettings.Config.EnableNurseIdleBackoff.Value);
+            }
+
             var board = GetNurseBoard(department);
             if (board.Score > 0)
             {
