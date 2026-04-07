@@ -18,7 +18,6 @@ namespace ProjectHospital.AutoLabBalancer
         public static IntakeSnapshot CreateSnapshot()
         {
             var snapshot = new IntakeSnapshot();
-            CountInsurancePatients(snapshot);
             snapshot.OutpatientDoctors = CountOutpatientDoctors();
             snapshot.ClinicCapacity = CalculateClinicCapacity(snapshot.OutpatientDoctors);
             snapshot.AmbulanceCapacity = CalculateAmbulanceCapacity(snapshot.OutpatientDoctors);
@@ -35,6 +34,7 @@ namespace ProjectHospital.AutoLabBalancer
             }
 
             var snapshot = CreateSnapshot();
+            CountInsurancePatients(snapshot);
             var clinicTarget = ClampTarget(snapshot.CurrentClinicPatients, snapshot.ClinicCapacity);
             var ambulanceTarget = ClampTarget(snapshot.CurrentAmbulancePatients, snapshot.AmbulanceCapacity);
             if (clinicTarget < snapshot.CurrentClinicPatients)
