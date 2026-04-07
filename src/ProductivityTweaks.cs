@@ -404,6 +404,107 @@ namespace ProjectHospital.AutoLabBalancer
             return false;
         }
 
+        public static void TryDischargeAfterNurseCheck(object hospitalization, Lopital.HospitalizationState previousState, Lopital.HospitalizationState newState)
+        {
+            if (!IsEnabled()
+                || RuntimeSettings.Config == null
+                || !RuntimeSettings.Config.EnableNurseCheckDischarge.Value
+                || hospitalization == null
+                || previousState != Lopital.HospitalizationState.OverridenByNurseCheckUp
+                || newState != Lopital.HospitalizationState.InBed)
+            {
+                return;
+            }
+
+            try
+            {
+                if (!CanDischargeAfterNurseCheck(hospitalization))
+                {
+                    return;
+                }
+
+                InvokeVoid(hospitalization, "SendHome");
+                InvokeVoid(hospitalization, "StopMonitoring");
+                var switchState = AccessTools.Method(hospitalization.GetType(), "SwitchState");
+                if (switchState != null)
+                {
+                    switchState.Invoke(hospitalization, new object[] { Lopital.HospitalizationState.Leaving });
+                }
+
+                Debug("Nurse-check discharged ready inpatient " + Describe(GetEntityFromComponent(hospitalization)) + ".");
+            }
+            catch (Exception ex)
+            {
+                LogError("Nurse-check discharge failed: " + ex);
+            }
+        }
+
+        private static bool CanDischargeAfterNurseCheck(object hospitalization)
+        {
+            var state = ReflectionHelpers.GetField(hospitalization, "m_state");
+            if (state == null
+                || Equals(ReflectionHelpers.GetField(state, "m_oustideRoom"), true)
+                || IsIcuHospitalization(state))
+            {
+                return false;
+            }
+
+            if (!InvokeBool(hospitalization, "IsHospitalizationTimeOver")
+                || !InvokeBool(hospitalization, "IsNothingPlanned"))
+            {
+                return false;
+            }
+
+            var entity = GetEntityFromComponent(hospitalization);
+            var patient = ReflectionHelpers.GetComponentByTypeName(entity, "Lopital.BehaviorPatient") as Lopital.BehaviorPatient;
+            if (patient == null || IsPatientGone(patient) || patient.GetControlMode() != Lopital.PatientControlMode.AI)
+            {
+                return false;
+            }
+
+            var procedure = ReflectionHelpers.GetComponentByTypeName(entity, "Lopital.ProcedureComponent");
+            var queue = GetProcedureQueue(procedure);
+            var patientState = ReflectionHelpers.GetField(patient, "m_state");
+            var medicalCondition = ReflectionHelpers.GetField(patientState, "m_medicalCondition");
+            if (medicalCondition == null || queue == null)
+            {
+                return false;
+            }
+
+            var procedureQueueType = AccessTools.TypeByName("Lopital.ProcedureQueue");
+            var hasBeenTreated = procedureQueueType == null ? null : AccessTools.Method(medicalCondition.GetType(), "HasBeenTreated", new[] { procedureQueueType });
+            if (hasBeenTreated == null || !Equals(hasBeenTreated.Invoke(medicalCondition, new[] { queue }), true))
+            {
+                return false;
+            }
+
+            var worstKnownHazard = procedureQueueType == null ? null : AccessTools.Method(medicalCondition.GetType(), "GetWorstKnownHazard", new[] { procedureQueueType });
+            var hazard = worstKnownHazard == null ? null : worstKnownHazard.Invoke(medicalCondition, new[] { queue });
+            return hazard == null || !string.Equals(hazard.ToString(), "High", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsIcuHospitalization(object hospitalizationState)
+        {
+            var treatmentPointer = ReflectionHelpers.GetField(hospitalizationState, "m_hospitalizationTreatment");
+            var treatment = ReflectionHelpers.ResolvePointer(treatmentPointer);
+            var icuTreatment = GetDatabaseEntry("GameDBTreatment", "TRT_HOSPITALIZATION_ICU");
+            if (treatment != null && icuTreatment != null && ReferenceEquals(treatment, icuTreatment))
+            {
+                return true;
+            }
+
+            var id = ReflectionHelpers.GetStringProperty(treatment, "ID")
+                ?? ReflectionHelpers.GetStringProperty(treatment, "DatabaseID")
+                ?? ReflectionHelpers.GetStringProperty(treatment, "StringID");
+            return string.Equals(id, "TRT_HOSPITALIZATION_ICU", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static object GetProcedureQueue(object procedure)
+        {
+            var state = ReflectionHelpers.GetField(procedure, "m_state");
+            return ReflectionHelpers.GetField(state, "m_procedureQueue");
+        }
+
         private static bool TryForceJanitorRoomSelection(object janitor, object room)
         {
             var state = ReflectionHelpers.GetField(janitor, "m_state");
@@ -1488,6 +1589,31 @@ namespace ProjectHospital.AutoLabBalancer
         private static bool Prefix(object __instance, float deltaTime)
         {
             return !ProductivityTweaksService.TryHandleAfterExaminationCheck(__instance, deltaTime);
+        }
+    }
+
+    [HarmonyPatch]
+    internal static class ProductivityNurseCheckDischargePatch
+    {
+        private static MethodBase TargetMethod()
+        {
+            var type = AccessTools.TypeByName("Lopital.HospitalizationComponent");
+            var stateType = AccessTools.TypeByName("Lopital.HospitalizationState");
+            return type == null || stateType == null ? null : AccessTools.Method(type, "SwitchState", new[] { stateType });
+        }
+
+        private static void Prefix(object __instance, ref Lopital.HospitalizationState __state)
+        {
+            var state = ReflectionHelpers.GetField(__instance, "m_state");
+            var current = ReflectionHelpers.GetField(state, "m_hospitalizationState");
+            __state = current is Lopital.HospitalizationState
+                ? (Lopital.HospitalizationState)current
+                : default(Lopital.HospitalizationState);
+        }
+
+        private static void Postfix(object __instance, Lopital.HospitalizationState state, Lopital.HospitalizationState __state)
+        {
+            ProductivityTweaksService.TryDischargeAfterNurseCheck(__instance, __state, state);
         }
     }
 }

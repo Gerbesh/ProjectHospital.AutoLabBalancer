@@ -278,6 +278,8 @@ Require-Method "Lopital.ProcedureComponent" "CancelReservation" @() | Out-Null
 Require-Field "Lopital.HospitalizationComponentPersistentData" "m_oustideRoom" | Out-Null
 Require-Field "Lopital.HospitalizationComponentPersistentData" "m_procedureReservationStatus" | Out-Null
 Require-Field "Lopital.HospitalizationComponentPersistentData" "m_timeInState" | Out-Null
+Require-Field "Lopital.HospitalizationComponentPersistentData" "m_hospitalizationState" | Out-Null
+Require-Field "Lopital.HospitalizationComponentPersistentData" "m_hospitalizationTreatment" | Out-Null
 Require-Field "Lopital.BehaviorPatientStateData" "m_department" | Out-Null
 Require-Field "Lopital.BehaviorPatientStateData" "m_patientState" | Out-Null
 Require-Field "Lopital.BehaviorPatientStateData" "m_sentAway" | Out-Null
@@ -288,6 +290,14 @@ Require-Field "PlannedExaminationState" "m_examination" | Out-Null
 Require-Field "PlannedExaminationState" "m_reservationStatus" | Out-Null
 Require-EnumValues "Lopital.ProcedureReservationStatus" @("WAITING_FOR_ROOM_EXM", "WAITING_FOR_ROOM_TRT", "WAITING_FOR_ROOM_SURG", "WAITING_FOR_STAFF_EXM", "WAITING_FOR_STAFF_TRT", "WAITING_FOR_STAFF_SURG", "WAITING_FOR_TRANSPORT_EXM", "WAITING_FOR_TRANSPORT_TRT", "WAITING_FOR_TRANSPORT_SURG", "WAITING_FOR_CRITICAL_PATIENTS") | Out-Null
 Require-EnumValues "Lopital.PatientState" @("Left", "OverriddenByHospitalization") | Out-Null
+Require-EnumValues "Lopital.HospitalizationState" @("OverridenByNurseCheckUp", "InBed", "Leaving") | Out-Null
+Require-EnumValues "Lopital.PatientControlMode" @("AI", "PlayerControl") | Out-Null
+Require-Method "Lopital.HospitalizationComponent" "SwitchState" @("Lopital.HospitalizationState") | Out-Null
+Require-Method "Lopital.HospitalizationComponent" "SendHome" @() | Out-Null
+Require-Method "Lopital.HospitalizationComponent" "StopMonitoring" @() | Out-Null
+Require-Method "Lopital.HospitalizationComponent" "IsHospitalizationTimeOver" @() "System.Boolean" | Out-Null
+Require-Method "Lopital.HospitalizationComponent" "IsNothingPlanned" @() "System.Boolean" | Out-Null
+Require-Method "Lopital.BehaviorPatient" "GetControlMode" @() "Lopital.PatientControlMode" | Out-Null
 
 Write-Host "Section: Referrals"
 # Referrals

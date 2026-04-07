@@ -16,7 +16,7 @@ namespace ProjectHospital.AutoLabBalancer
     {
         public const string PluginGuid = "local.projecthospital.autolabbalancer";
         public const string PluginName = "Project Hospital Productivity Tweaks";
-        public const string PluginVersion = "0.11.3";
+        public const string PluginVersion = "0.11.4";
 
         private AutoLabBalancerConfig _config;
         private Harmony _harmony;
@@ -225,6 +225,7 @@ namespace ProjectHospital.AutoLabBalancer
             DrawToggle(_config.EnableFlexibleStretcherPickup, ModText.T("FlexibleStretcherPickup"));
             DrawToggle(_config.EnableChainedHospitalizedExaminations, ModText.T("ChainDiagnostics"));
             DrawToggle(_config.EnableTransportReservationTimeout, ModText.T("RetryTransportReservations"));
+            DrawToggle(_config.EnableNurseCheckDischarge, ModText.T("NurseCheckDischarge"));
             DrawToggle(_config.EnableEmergencyRunSpeedBoost, ModText.T("EmergencyRunSpeedBoost"));
             DrawToggle(_config.EnableNurseAssistedORCleanup, ModText.T("NurseAssistedOrCleanup"));
             DrawToggle(_config.EnableEquipmentReferral, ModText.T("EquipmentReferral"));
@@ -381,6 +382,7 @@ namespace ProjectHospital.AutoLabBalancer
         public ConfigEntry<bool> EnableFlexibleStretcherPickup { get; private set; }
         public ConfigEntry<bool> EnableChainedHospitalizedExaminations { get; private set; }
         public ConfigEntry<bool> EnableTransportReservationTimeout { get; private set; }
+        public ConfigEntry<bool> EnableNurseCheckDischarge { get; private set; }
         public ConfigEntry<bool> EnableEmergencyRunSpeedBoost { get; private set; }
         public ConfigEntry<bool> EnableAggressiveMedicationPlanning { get; private set; }
         public ConfigEntry<int> MaxAutoMedicationsPerPlan { get; private set; }
@@ -433,6 +435,7 @@ namespace ProjectHospital.AutoLabBalancer
                 EnableFlexibleStretcherPickup = config.Bind("ProductivityTweaks", "EnableFlexibleStretcherPickup", true, "When vanilla cannot find a free department stretcher/wheelchair, search other departments for a free valid matching transport object."),
                 EnableChainedHospitalizedExaminations = config.Bind("ProductivityTweaks", "EnableChainedHospitalizedExaminations", true, "Keep hospitalized patients near diagnostics when another examination is already planned instead of returning to bed immediately."),
                 EnableTransportReservationTimeout = config.Bind("ProductivityTweaks", "EnableTransportReservationTimeout", true, "Retry stale procedure/transport reservations for chained hospitalized patients before sending them back to bed."),
+                EnableNurseCheckDischarge = config.Bind("ProductivityTweaks", "EnableNurseCheckDischarge", true, "After a nurse checkup, discharge AI hospitalized patients that satisfy vanilla discharge checks except the daily release time window. ICU patients are left to vanilla placement logic."),
                 EnableEmergencyRunSpeedBoost = config.Bind("ProductivityTweaks", "EnableEmergencyRunSpeedBoost", true, "Boost staff speed only in detected critical/collapse contexts."),
                 EnableAggressiveMedicationPlanning = config.Bind("ProductivityTweaks", "EnableAggressiveMedicationPlanning", true, "After diagnosis, plan all available prescription/receipt treatments for known active symptoms."),
                 MaxAutoMedicationsPerPlan = config.Bind("ProductivityTweaks", "MaxAutoMedicationsPerPlan", 4, "Maximum medication treatments the mod may add in one treatment-planning pass. 0 disables this per-pass limit."),
