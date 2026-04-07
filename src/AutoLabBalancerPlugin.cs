@@ -16,7 +16,7 @@ namespace ProjectHospital.AutoLabBalancer
     {
         public const string PluginGuid = "local.projecthospital.autolabbalancer";
         public const string PluginName = "Project Hospital Productivity Tweaks";
-        public const string PluginVersion = "0.12.0";
+        public const string PluginVersion = "0.12.1";
 
         private AutoLabBalancerConfig _config;
         private Harmony _harmony;
@@ -61,6 +61,8 @@ namespace ProjectHospital.AutoLabBalancer
             {
                 return;
             }
+
+            PerformanceProfiler.Tick(Time.realtimeSinceStartup);
 
             if (Time.realtimeSinceStartup < _nextTickAt)
             {
@@ -162,6 +164,7 @@ namespace ProjectHospital.AutoLabBalancer
             DrawPageButton(1, ModText.T("PageCounters"));
             DrawPageButton(2, ModText.T("PageBottlenecks"));
             DrawPageButton(3, ModText.T("PageSurgery"));
+            DrawPageButton(4, ModText.T("PagePerformance"));
             GUILayout.EndHorizontal();
 
             GUILayout.Space(8f);
@@ -177,9 +180,13 @@ namespace ProjectHospital.AutoLabBalancer
             {
                 DrawBottlenecksPage(false);
             }
-            else
+            else if (_settingsPage == 3)
             {
                 DrawBottlenecksPage(true);
+            }
+            else
+            {
+                DrawPerformancePage();
             }
 
             GUILayout.Space(8f);
@@ -235,6 +242,9 @@ namespace ProjectHospital.AutoLabBalancer
             DrawToggle(_config.EnableBottleneckOverlay, ModText.T("ShowBottleneckOverlay"));
             DrawToggle(_config.EnableSurgeryAnalyticsLog, ModText.T("SurgeryAnalyticsLog"));
             DrawToggle(_config.EnableSurgeryTooltipFix, ModText.T("FixSurgeryTooltip"));
+            GUILayout.Space(8f);
+            GUILayout.Label(ModText.T("PerformanceProfiler"));
+            DrawToggle(_config.EnablePerformanceProfiler, ModText.T("EnablePerformanceProfiler"));
             GUILayout.Space(8f);
             GUILayout.Label(ModText.T("IntakeControl"));
             DrawToggle(_config.EnableIntakeControl, ModText.T("EnableIntakeControl"));
@@ -358,6 +368,33 @@ namespace ProjectHospital.AutoLabBalancer
             }
         }
 
+        private void DrawPerformancePage()
+        {
+            GUILayout.Label(ModText.T("PagePerformance"));
+            if (!_config.EnablePerformanceProfiler.Value)
+            {
+                GUILayout.Label(ModText.T("PerformanceProfilerDisabled"));
+                return;
+            }
+
+            var samples = PerformanceProfiler.GetTopSamples(_config.ProfilerTopN.Value);
+            if (samples.Count == 0)
+            {
+                GUILayout.Label(ModText.T("PerformanceProfilerNoSamples"));
+                return;
+            }
+
+            foreach (var sample in samples)
+            {
+                GUILayout.Label(PerformanceProfiler.FormatSample(sample));
+            }
+
+            if (GUILayout.Button(ModText.T("PerformanceProfilerReset")))
+            {
+                PerformanceProfiler.Reset();
+            }
+        }
+
         private void DrawToggle(ConfigEntry<bool> entry, string label)
         {
             var value = GUILayout.Toggle(entry.Value, label);
@@ -418,6 +455,10 @@ namespace ProjectHospital.AutoLabBalancer
         public ConfigEntry<bool> IntakeDebugLog { get; private set; }
         public ConfigEntry<bool> DevCheapUpgrades { get; private set; }
         public ConfigEntry<bool> EnableAbsurdUpgrades { get; private set; }
+        public ConfigEntry<bool> EnablePerformanceProfiler { get; private set; }
+        public ConfigEntry<float> ProfilerSampleIntervalSeconds { get; private set; }
+        public ConfigEntry<int> ProfilerTopN { get; private set; }
+        public ConfigEntry<float> ProfilerSlowCallMs { get; private set; }
         public ConfigFile SourceConfig { get; private set; }
 
         public static AutoLabBalancerConfig Bind(ConfigFile config)
@@ -471,7 +512,11 @@ namespace ProjectHospital.AutoLabBalancer
                 ReserveEmergencyCapacityPercent = config.Bind("IntakeControl", "ReserveEmergencyCapacityPercent", 15, "Percent of dynamic capacity reserved for emergency headroom."),
                 IntakeDebugLog = config.Bind("IntakeControl", "IntakeDebugLog", false, "Write detailed intake-control decisions."),
                 DevCheapUpgrades = config.Bind("Developer", "DevCheapUpgrades", false, "Developer helper: reduce hospital upgrade prices so the most expensive next level costs 100000."),
-                EnableAbsurdUpgrades = config.Bind("Developer", "EnableAbsurdUpgrades", false, "Enable absurd hospital upgrade tier: expensive, intentionally overpowered final effects.")
+                EnableAbsurdUpgrades = config.Bind("Developer", "EnableAbsurdUpgrades", false, "Enable absurd hospital upgrade tier: expensive, intentionally overpowered final effects."),
+                EnablePerformanceProfiler = config.Bind("Performance", "EnablePerformanceProfiler", false, "Enable internal performance profiler. Default off because Harmony timing has overhead."),
+                ProfilerSampleIntervalSeconds = config.Bind("Performance", "ProfilerSampleIntervalSeconds", 10f, "How often to log and reset profiler rolling samples."),
+                ProfilerTopN = config.Bind("Performance", "ProfilerTopN", 20, "How many profiler rows to show/log."),
+                ProfilerSlowCallMs = config.Bind("Performance", "ProfilerSlowCallMs", 5f, "Calls at or above this duration are counted as slow calls.")
             };
         }
     }

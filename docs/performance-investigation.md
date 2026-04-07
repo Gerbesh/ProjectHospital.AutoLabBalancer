@@ -188,20 +188,21 @@ These operations are unsafe off main thread:
 - Room, object, tile, bed, stretcher, owner/user, and reservation mutations.
 - Unity `GameObject`, `Transform`, UI, animation state, and notification calls.
 
-## Next implementation step
+## Implemented first profiler layer
 
-Add `PerformanceProfiler.cs` with config:
+`PerformanceProfiler.cs` was added as a default-off measurement layer. It uses Harmony prefix/postfix timing around a deliberately small target set and keeps rolling samples in memory.
+
+Config:
 
 ```ini
 [Performance]
-EnableProfiler = false
+EnablePerformanceProfiler = false
 ProfilerSampleIntervalSeconds = 10
 ProfilerTopN = 20
 ProfilerSlowCallMs = 5
-ProfilerOverlay = true
 ```
 
-Initial instrumented targets:
+Instrumented targets:
 
 - `ProcedureManager.Update(int)`
 - `WalkComponent.MultiUpdate(int, float)`
@@ -213,4 +214,6 @@ Initial instrumented targets:
 - `BottleneckOverlayService.CreateSnapshot()`
 - `ProductivityTweaksService.Tick(float)`
 
-Keep profiler default-off and use `Stopwatch.GetTimestamp()` to minimize overhead.
+The profiler is shown on the F8 `Performance` page and logs top-N samples once per configured interval, then resets the rolling window. It uses `Stopwatch.GetTimestamp()` to minimize overhead.
+
+Keep it disabled during normal play. Enable only when capturing a performance sample on a known laggy save.
