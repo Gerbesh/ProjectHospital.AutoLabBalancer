@@ -169,7 +169,7 @@ namespace ProjectHospital.AutoLabBalancer
 
         public static void ApplyRoleMovementExtraSteps(object walkComponent, int updateCount, float deltaTime)
         {
-            if (walkComponent == null || updateCount <= 0 || deltaTime <= 0f || deltaTime > 0.05f)
+            if (walkComponent == null || updateCount <= 0 || deltaTime <= 0f)
             {
                 return;
             }
@@ -197,6 +197,8 @@ namespace ProjectHospital.AutoLabBalancer
                 return;
             }
 
+            var movementDeltaTime = Mathf.Min(deltaTime, 0.05f);
+
             var routeField = AccessTools.Field(walkComponent.GetType(), "m_route");
             var floorField = AccessTools.Field(walkComponent.GetType(), "m_floor");
             var updateMovement = AccessTools.Method(walkComponent.GetType(), "UpdateMovement");
@@ -208,10 +210,10 @@ namespace ProjectHospital.AutoLabBalancer
             var floor = floorField.GetValue(walkComponent);
             for (var i = 0; i < extraSteps && routeField.GetValue(walkComponent) != null; i++)
             {
-                var result = updateMovement.Invoke(walkComponent, new[] { floor, (object)deltaTime });
+                var result = updateMovement.Invoke(walkComponent, new[] { floor, (object)movementDeltaTime });
                 if (result != null && string.Equals(result.ToString(), "NEXT_SEGMENT", StringComparison.OrdinalIgnoreCase) && routeField.GetValue(walkComponent) != null)
                 {
-                    updateMovement.Invoke(walkComponent, new[] { floor, (object)deltaTime });
+                    updateMovement.Invoke(walkComponent, new[] { floor, (object)movementDeltaTime });
                 }
             }
         }
