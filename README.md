@@ -95,6 +95,16 @@ The project file expects local references to:
 
 The repository intentionally does not include BepInEx binaries, game DLLs, or build outputs.
 
+## Contract tests
+
+Run these before installing a new DLL:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\ReflectionContract.Tests.ps1
+```
+
+The tests load the real `Assembly-CSharp.dll` and check the reflection/Harmony contracts used by the mod: target methods, private fields, enum values, surgery role requirements, dirty-tile cleanup methods, movement update signatures, referral hooks, and the vanilla surgery tooltip mismatch.
+
 ## Manual install
 
 1. Install BepInEx 5 x64 into the Project Hospital game directory.
