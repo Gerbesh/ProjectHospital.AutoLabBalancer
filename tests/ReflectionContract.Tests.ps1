@@ -364,6 +364,16 @@ Require-Method "Lopital.Department" "Pay" @("System.Int32", "Lopital.PaymentCate
 Require-Method "Lopital.Department" "HasWorkingClinic" @() "System.Boolean" | Out-Null
 Require-Method "Lopital.MapScriptInterface" "GetDepartmentOfType" @("GameDBDepartment") "Lopital.Department" | Out-Null
 Require-Method "CharacterPanelPatientPanelController" "SendPatientToAnotherHospital" @() | Out-Null
+Require-Method "Lopital.AmbulanceManager" "GetFreeExternalAmbulance" @() "Lopital.Ambulance" | Out-Null
+Require-Method "Lopital.Ambulance" "UpdateExternalAmbulanceComingBackWithPatient" @("System.Single") | Out-Null
+Require-Method "Lopital.Ambulance" "UpdateExternalAmbulanceMovingOutOfMap" @("System.Single") | Out-Null
+Require-Field "Lopital.Ambulance" "m_state" | Out-Null
+Require-Field "Lopital.AmbulancePersistentData" "m_external" | Out-Null
+Require-Field "Lopital.AmbulancePersistentData" "m_isHelicopter" | Out-Null
+Require-Field "Lopital.AmbulancePersistentData" "m_patient" | Out-Null
+Require-Field "Lopital.AmbulancePersistentData" "m_ambulanceObject" | Out-Null
+Require-Field "Lopital.BehaviorParamedic" "m_state" | Out-Null
+Require-Field "Lopital.BehaviorParamedicPersistentData" "m_currentPatient" | Out-Null
 Require-AnyMethod "CharacterPanelPatientPanelController" "IsPatientTreated" | Out-Null
 
 Write-Host "Section: Surgery readiness and tooltip"
