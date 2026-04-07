@@ -164,6 +164,7 @@ Require-Method "StringTable" "GetCurrentLanguage" @() "System.String" | Out-Null
 Require-Method "HospitalManagementPanelController" "Start" @() | Out-Null
 Require-Method "HospitalManagementPanelController" "SetTab" @("HospitalManagementPanelController+HospitalManagementTabs") | Out-Null
 Require-Field "HospitalManagementPanelController" "m_tabStatistics" | Out-Null
+Require-Field "HospitalManagementPanelController" "m_tabInsurance" | Out-Null
 Require-Field "HospitalManagementPanelController" "m_tabButtonAmbulances" | Out-Null
 Require-Field "HospitalManagementPanelController" "m_activeTab" | Out-Null
 Require-Method "IconButtonController" "RemoveOnClickDelegate" @() | Out-Null

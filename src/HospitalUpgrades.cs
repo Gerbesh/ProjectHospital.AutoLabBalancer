@@ -144,17 +144,40 @@ namespace ProjectHospital.AutoLabBalancer
         private readonly List<Button> _buttons = new List<Button>();
         private Font _font;
 
-        public void Create(Transform parent)
+        public void Create(GameObject templateTab)
         {
             _font = Resources.GetBuiltinResource<Font>("Arial.ttf");
             _panel = new GameObject("ProjectHospitalAutoLabBalancer_UpgradesPanel");
+            var parent = templateTab == null ? null : templateTab.transform.parent;
             _panel.transform.SetParent(parent, false);
+            _panel.transform.localScale = templateTab == null ? Vector3.one : templateTab.transform.localScale;
+            _panel.transform.localRotation = templateTab == null ? Quaternion.identity : templateTab.transform.localRotation;
 
             var rect = _panel.AddComponent<RectTransform>();
-            rect.anchorMin = new Vector2(0f, 0f);
-            rect.anchorMax = new Vector2(1f, 1f);
-            rect.offsetMin = new Vector2(52f, 42f);
-            rect.offsetMax = new Vector2(-72f, -152f);
+            var templateRect = templateTab == null ? null : templateTab.GetComponent<RectTransform>();
+            if (templateRect != null)
+            {
+                rect.anchorMin = templateRect.anchorMin;
+                rect.anchorMax = templateRect.anchorMax;
+                rect.pivot = templateRect.pivot;
+                if (IsStretchRect(templateRect))
+                {
+                    rect.offsetMin = templateRect.offsetMin;
+                    rect.offsetMax = templateRect.offsetMax;
+                }
+                else
+                {
+                    rect.anchoredPosition = templateRect.anchoredPosition;
+                    rect.sizeDelta = templateRect.sizeDelta;
+                }
+            }
+            else
+            {
+                rect.anchorMin = new Vector2(0f, 0f);
+                rect.anchorMax = new Vector2(1f, 1f);
+                rect.offsetMin = new Vector2(52f, 42f);
+                rect.offsetMax = new Vector2(-72f, -152f);
+            }
 
             var image = _panel.AddComponent<Image>();
             image.color = new Color(1f, 1f, 1f, 0.94f);
@@ -220,6 +243,12 @@ namespace ProjectHospital.AutoLabBalancer
 
             Refresh();
             SetVisible(false);
+        }
+
+        private static bool IsStretchRect(RectTransform rect)
+        {
+            return Math.Abs(rect.anchorMin.x - rect.anchorMax.x) > 0.0001f ||
+                   Math.Abs(rect.anchorMin.y - rect.anchorMax.y) > 0.0001f;
         }
 
         public void SetVisible(bool visible)
@@ -420,9 +449,11 @@ namespace ProjectHospital.AutoLabBalancer
             }
 
             var statsTab = ReflectionHelpers.GetField(controller, "m_tabStatistics") as GameObject;
+            var insuranceTab = ReflectionHelpers.GetField(controller, "m_tabInsurance") as GameObject;
             var lastButton = ReflectionHelpers.GetField(controller, "m_tabButtonAmbulances") as GameObject;
             var sourceButton = ReflectionHelpers.GetField(controller, "m_tabButtonBudget") as GameObject ?? lastButton;
-            if (statsTab == null || lastButton == null || sourceButton == null)
+            var templateTab = insuranceTab ?? statsTab;
+            if (statsTab == null || templateTab == null || lastButton == null || sourceButton == null)
             {
                 return;
             }
@@ -457,7 +488,7 @@ namespace ProjectHospital.AutoLabBalancer
             }
 
             var panel = statsTab.AddComponent<HospitalUpgradesNativePanel>();
-            panel.Create(statsTab.transform.parent);
+            panel.Create(templateTab);
             Panels[controller] = panel;
         }
 
