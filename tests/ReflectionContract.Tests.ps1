@@ -161,8 +161,9 @@ Write-Host "Section: Plugin UI/localization"
 # Plugin UI/localization
 Require-Method "StringTable" "GetLocalizedText" @("System.String", "System.String[]") "System.String" | Out-Null
 
-Write-Host "Section: Lab balancer and lab availability override"
-# Lab balancer and lab availability override
+Write-Host "Section: Read-only bottleneck overlay lab counters"
+# Read-only lab counters used by the bottleneck overlay. The old lab auto-balance and
+# lab order availability override are intentionally removed.
 Require-Field "Lopital.Hospital" "m_departments" | Out-Null
 Require-Field "Lopital.Hospital" "m_characters" | Out-Null
 Require-Property "Lopital.LabProcedureManager" "Instance" | Out-Null
@@ -171,15 +172,8 @@ Require-Field "Lopital.LabProcedurePersistentData" "m_statLab" | Out-Null
 Require-Method "Lopital.BehaviorLabSpecialist" "IsFree" @() "System.Boolean" | Out-Null
 Require-Method "Lopital.BehaviorLabSpecialist" "GetReserved" @() "System.Boolean" | Out-Null
 Require-Method "Lopital.EmployeeComponent" "IsPerformingAProcedure" @() "System.Boolean" | Out-Null
-Require-Method "Lopital.EmployeeComponent" "SetWorkplace" @("GLib.Vector2i", "System.Int32", "Shift", "Lopital.TileObject") | Out-Null
-Require-Method "Lopital.EmployeeComponent" "HasSkill" @("System.String") "System.Boolean" | Out-Null
 Require-Field "Lopital.EmployeeComponentPersistentData" "m_department" | Out-Null
-Require-Field "Lopital.EmployeeComponentPersistentData" "m_workDesk" | Out-Null
-Require-Field "Lopital.EmployeeComponentPersistentData" "m_workPlacePosition" | Out-Null
-Require-Field "Lopital.EmployeeComponentPersistentData" "m_workPlaceFloorIndex" | Out-Null
-Require-Field "Lopital.EmployeeComponentPersistentData" "m_shift" | Out-Null
 Require-Field "Lopital.DepartmentPersistentData" "m_rooms" | Out-Null
-Require-Field "Lopital.DepartmentPersistentData" "m_objects" | Out-Null
 Require-Field "Lopital.RoomPersistentData" "m_roomType" | Out-Null
 
 $availabilityMethods = @(Require-AnyMethod "Lopital.ProcedureComponent" "GetProcedureAvailability") + @(Require-AnyMethod "Lopital.ProcedureComponent" "GetProcedureAvailabilty")

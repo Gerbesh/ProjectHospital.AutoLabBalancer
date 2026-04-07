@@ -15,12 +15,10 @@ namespace ProjectHospital.AutoLabBalancer
     public sealed class AutoLabBalancerPlugin : BaseUnityPlugin
     {
         public const string PluginGuid = "local.projecthospital.autolabbalancer";
-        public const string PluginName = "Project Hospital Auto Lab Balancer";
-        public const string PluginVersion = "0.8.17";
+        public const string PluginName = "Project Hospital Productivity Tweaks";
+        public const string PluginVersion = "0.9.0";
 
         private AutoLabBalancerConfig _config;
-        private LabSnapshotService _snapshotService;
-        private LabAssignmentService _assignmentService;
         private Harmony _harmony;
         private float _nextTickAt;
         private float _nextOverlaySnapshotAt;
@@ -34,8 +32,6 @@ namespace ProjectHospital.AutoLabBalancer
         {
             Logger.LogInfo(PluginName + " awake started.");
             _config = AutoLabBalancerConfig.Bind(Config);
-            _snapshotService = new LabSnapshotService(Logger, _config);
-            _assignmentService = new LabAssignmentService(Logger, _config);
             _nextTickAt = 0f;
             RuntimeSettings.Config = _config;
             RuntimeSettings.Logger = Logger;
@@ -51,7 +47,7 @@ namespace ProjectHospital.AutoLabBalancer
                 Logger.LogError("Harmony patching failed; continuing without perk filtering patches. " + ex);
             }
 
-            Logger.LogInfo(PluginName + " loaded. EnableAssignments=" + _config.EnableAssignments.Value);
+            Logger.LogInfo(PluginName + " loaded.");
         }
 
         private void Update()
@@ -75,19 +71,12 @@ namespace ProjectHospital.AutoLabBalancer
 
             try
             {
-                var snapshot = _snapshotService.CreateSnapshot();
-                if (snapshot == null)
-                {
-                    return;
-                }
-
-                _assignmentService.UpdateAssignments(snapshot, Time.realtimeSinceStartup);
                 ProductivityTweaksService.Tick(Time.realtimeSinceStartup);
                 TickSurgeryAnalytics();
             }
             catch (Exception ex)
             {
-                Logger.LogError("Auto Lab Balancer tick failed: " + ex);
+                Logger.LogError("Project Hospital mod tick failed: " + ex);
             }
         }
 
@@ -125,7 +114,6 @@ namespace ProjectHospital.AutoLabBalancer
         {
             try
             {
-                _assignmentService.RestoreAll("plugin destroyed");
                 if (_harmony != null)
                 {
                     _harmony.UnpatchSelf();
@@ -133,7 +121,7 @@ namespace ProjectHospital.AutoLabBalancer
             }
             catch (Exception ex)
             {
-                Logger.LogError("Auto Lab Balancer restore on destroy failed: " + ex);
+                Logger.LogError("Project Hospital mod cleanup failed: " + ex);
             }
         }
 
@@ -144,7 +132,7 @@ namespace ProjectHospital.AutoLabBalancer
                 return;
             }
 
-            _settingsWindow = GUILayout.Window(871234, _settingsWindow, DrawSettingsWindow, "Auto Lab Balancer");
+            _settingsWindow = GUILayout.Window(871234, _settingsWindow, DrawSettingsWindow, "Productivity Tweaks");
         }
 
         private void DrawSettingsWindow(int windowId)
@@ -195,20 +183,6 @@ namespace ProjectHospital.AutoLabBalancer
 
         private void DrawSettingsPage()
         {
-            var labBalance = GUILayout.Toggle(_config.EnableAssignments.Value, "Lab auto-balance: move free lab specialists");
-            if (labBalance != _config.EnableAssignments.Value)
-            {
-                _config.EnableAssignments.Value = labBalance;
-                Config.Save();
-            }
-
-            var labAvailability = GUILayout.Toggle(_config.EnableLabAvailabilityOverride.Value, "Allow lab orders when free matching lab staff exists");
-            if (labAvailability != _config.EnableLabAvailabilityOverride.Value)
-            {
-                _config.EnableLabAvailabilityOverride.Value = labAvailability;
-                Config.Save();
-            }
-
             var blockNegativePerks = GUILayout.Toggle(_config.PreventNegativeEmployeePerks.Value, "Block negative employee perks on generation");
             if (blockNegativePerks != _config.PreventNegativeEmployeePerks.Value)
             {
@@ -247,8 +221,6 @@ namespace ProjectHospital.AutoLabBalancer
             GUILayout.Label("Counters");
             GUILayout.BeginHorizontal();
             GUILayout.BeginVertical();
-            GUILayout.Label("Lab transfers active: " + RuntimeCounters.LabTransfersActive);
-            GUILayout.Label("Lab transfers total: " + RuntimeCounters.LabTransfersStarted);
             GUILayout.Label("Medication auto-added: " + RuntimeCounters.MedicationsAutoPlanned);
             GUILayout.Label("Free-time suppressed: " + RuntimeCounters.FreeTimeSuppressed);
             GUILayout.Label("OR cleanup priorities: " + RuntimeCounters.ORCleanupPrioritiesCreated);
@@ -356,18 +328,10 @@ namespace ProjectHospital.AutoLabBalancer
     internal sealed class AutoLabBalancerConfig
     {
         public ConfigEntry<bool> Enabled { get; private set; }
-        public ConfigEntry<bool> EnableAssignments { get; private set; }
-        public ConfigEntry<bool> EnableLabAvailabilityOverride { get; private set; }
         public ConfigEntry<bool> PreventNegativeEmployeePerks { get; private set; }
         public ConfigEntry<bool> EnableDebugLog { get; private set; }
         public ConfigEntry<KeyCode> SettingsWindowKey { get; private set; }
         public ConfigEntry<float> TickIntervalSeconds { get; private set; }
-        public ConfigEntry<int> OverloadedQueueThreshold { get; private set; }
-        public ConfigEntry<int> IdleQueueThreshold { get; private set; }
-        public ConfigEntry<float> MinTransferDurationSeconds { get; private set; }
-        public ConfigEntry<int> MaxTransferredStaffPerLab { get; private set; }
-        public ConfigEntry<bool> SameDepartmentOnly { get; private set; }
-        public ConfigEntry<bool> PreferSameFloorStaff { get; private set; }
         public ConfigEntry<bool> EnablePostSurgeryCleanupPriority { get; private set; }
         public ConfigEntry<bool> EnableNurseAssistedORCleanup { get; private set; }
         public ConfigEntry<bool> EnableFreeTimeSuppression { get; private set; }
@@ -401,18 +365,10 @@ namespace ProjectHospital.AutoLabBalancer
             return new AutoLabBalancerConfig
             {
                 Enabled = config.Bind("General", "Enabled", true, "Master switch for the mod."),
-                EnableAssignments = config.Bind("General", "EnableAssignments", false, "When false, the mod only logs diagnostics and does not change workplaces."),
-                EnableLabAvailabilityOverride = config.Bind("General", "EnableLabAvailabilityOverride", true, "When true, lab examinations can be ordered if a matching free lab specialist exists even when the target lab currently has no assigned staff."),
                 PreventNegativeEmployeePerks = config.Bind("General", "PreventNegativeEmployeePerks", false, "When true, employee generation removes negative perks from hired/editor-created staff."),
                 EnableDebugLog = config.Bind("General", "EnableDebugLog", false, "Write detailed queue and candidate logs."),
                 SettingsWindowKey = config.Bind("General", "SettingsWindowKey", KeyCode.F8, "Key used to show the in-game mod settings window."),
-                TickIntervalSeconds = config.Bind("Balancing", "TickIntervalSeconds", 30f, "How often to evaluate laboratory queues."),
-                OverloadedQueueThreshold = config.Bind("Balancing", "OverloadedQueueThreshold", 5, "A lab is overloaded when its waiting queue is at least this size."),
-                IdleQueueThreshold = config.Bind("Balancing", "IdleQueueThreshold", 1, "A lab can donate staff when its waiting queue is at most this size."),
-                MinTransferDurationSeconds = config.Bind("Balancing", "MinTransferDurationSeconds", 120f, "Minimum time before returning a transferred employee unless they are no longer safe to keep."),
-                MaxTransferredStaffPerLab = config.Bind("Balancing", "MaxTransferredStaffPerLab", 2, "Maximum temporary staff assigned to the same target lab."),
-                SameDepartmentOnly = config.Bind("Balancing", "SameDepartmentOnly", true, "Only transfer staff between labs in the same department."),
-                PreferSameFloorStaff = config.Bind("Balancing", "PreferSameFloorStaff", true, "Prefer temporary lab staff on the same floor as the target lab."),
+                TickIntervalSeconds = config.Bind("General", "TickIntervalSeconds", 30f, "How often to run background mod maintenance."),
                 EnablePostSurgeryCleanupPriority = config.Bind("ProductivityTweaks", "EnablePostSurgeryCleanupPriority", true, "After surgery, prioritize the operating room for janitor cleanup."),
                 EnableNurseAssistedORCleanup = config.Bind("ProductivityTweaks", "EnableNurseAssistedORCleanup", false, "Allow free surgical nurses to help with limited operating room cleanup when no higher-priority nurse work is detected."),
                 EnableFreeTimeSuppression = config.Bind("ProductivityTweaks", "EnableFreeTimeSuppression", true, "Prevent doctor/nurse free-time procedures while the department is visibly busy."),
@@ -444,427 +400,6 @@ namespace ProjectHospital.AutoLabBalancer
         }
     }
 
-    internal sealed class LabSnapshotService
-    {
-        private readonly ManualLogSource _log;
-        private readonly AutoLabBalancerConfig _config;
-        private readonly GameApi _api;
-
-        public LabSnapshotService(ManualLogSource log, AutoLabBalancerConfig config)
-        {
-            _log = log;
-            _config = config;
-            _api = new GameApi(log);
-        }
-
-        public LabSnapshot CreateSnapshot()
-        {
-            if (!_api.IsReady)
-            {
-                _log.LogWarning("Auto Lab Balancer could not resolve required game types yet.");
-                return null;
-            }
-
-            var labProcedureManager = _api.GetStaticProperty(_api.LabProcedureManagerType, "Instance");
-            var hospital = _api.GetStaticProperty(_api.HospitalType, "Instance");
-            if (labProcedureManager == null || hospital == null)
-            {
-                if (_config.EnableDebugLog.Value)
-                {
-                    _log.LogDebug("Hospital or LabProcedureManager instance is not ready.");
-                }
-
-                return null;
-            }
-
-            var labs = CollectLabs(hospital);
-            var employees = CollectLabSpecialists(hospital, labs);
-            var queueByLab = CountIdleProceduresByLab(labProcedureManager);
-
-            foreach (var lab in labs)
-            {
-                int count;
-                if (queueByLab.TryGetValue(lab.Entity, out count))
-                {
-                    lab.IdleQueue = count;
-                }
-            }
-
-            foreach (var employee in employees)
-            {
-                var homeLab = employee.WorkplaceRoom;
-                if (homeLab == null)
-                {
-                    continue;
-                }
-
-                var lab = labs.FirstOrDefault(x => ReferenceEquals(x.Entity, homeLab));
-                if (lab != null)
-                {
-                    lab.FreeStaff.Add(employee);
-                }
-            }
-
-            if (_config.EnableDebugLog.Value)
-            {
-                foreach (var lab in labs.OrderByDescending(x => x.IdleQueue))
-                {
-                    _log.LogInfo("Lab queue: " + lab.DisplayName + " queue=" + lab.IdleQueue + " freeStaff=" + lab.FreeStaff.Count);
-                }
-            }
-
-            return new LabSnapshot(labs, employees);
-        }
-
-        private List<LabRoomInfo> CollectLabs(object hospital)
-        {
-            var result = new List<LabRoomInfo>();
-            foreach (var department in _api.GetEnumerableField(hospital, "m_departments"))
-            {
-                foreach (var room in _api.EnumerateDepartmentRooms(department))
-                {
-                    if (_api.IsLabRoom(room))
-                    {
-                        result.Add(new LabRoomInfo(room, department, _api.GetEntityName(room)));
-                    }
-                }
-            }
-
-            return result;
-        }
-
-        private List<LabEmployeeInfo> CollectLabSpecialists(object hospital, List<LabRoomInfo> labs)
-        {
-            var result = new List<LabEmployeeInfo>();
-            foreach (var character in _api.GetEnumerableField(hospital, "m_characters"))
-            {
-                var behavior = _api.GetComponentByTypeName(character, "Lopital.BehaviorLabSpecialist");
-                var employee = _api.GetComponentByTypeName(character, "Lopital.EmployeeComponent");
-                if (behavior == null || employee == null)
-                {
-                    continue;
-                }
-
-                if (!_api.IsFreeLabSpecialist(behavior) || _api.IsEmployeePerformingProcedure(employee))
-                {
-                    continue;
-                }
-
-                var workDesk = _api.GetEmployeeWorkDesk(employee);
-                result.Add(new LabEmployeeInfo(
-                    character,
-                    employee,
-                    behavior,
-                    _api.FindRoomContainingTileObject(workDesk, labs.Select(x => x.Entity)),
-                    _api.GetEmployeeDepartment(employee),
-                    _api.GetEntityName(character)));
-            }
-
-            return result;
-        }
-
-        private Dictionary<object, int> CountIdleProceduresByLab(object labProcedureManager)
-        {
-            var result = new Dictionary<object, int>(ReferenceEqualityComparer.Instance);
-            foreach (var procedure in _api.GetEnumerableField(labProcedureManager, "m_labProcedures"))
-            {
-                if (!_api.IsIdleLabProcedure(procedure))
-                {
-                    continue;
-                }
-
-                var state = _api.GetField(procedure, "m_state");
-                var lab = _api.ResolveEntityPointer(_api.GetField(state, "m_statLab"));
-                if (lab == null)
-                {
-                    continue;
-                }
-
-                int count;
-                result.TryGetValue(lab, out count);
-                result[lab] = count + 1;
-            }
-
-            return result;
-        }
-    }
-
-    internal sealed class LabAssignmentService
-    {
-        private readonly ManualLogSource _log;
-        private readonly AutoLabBalancerConfig _config;
-        private readonly GameApi _api;
-        private readonly Dictionary<object, TemporaryAssignment> _assignments = new Dictionary<object, TemporaryAssignment>(ReferenceEqualityComparer.Instance);
-
-        public LabAssignmentService(ManualLogSource log, AutoLabBalancerConfig config)
-        {
-            _log = log;
-            _config = config;
-            _api = new GameApi(log);
-        }
-
-        public void UpdateAssignments(LabSnapshot snapshot, float now)
-        {
-            RestoreCompletedAssignments(snapshot, now);
-            RuntimeCounters.LabTransfersActive = _assignments.Count;
-
-            var overloadedLabs = snapshot.Labs
-                .Where(x => x.IdleQueue >= _config.OverloadedQueueThreshold.Value)
-                .OrderByDescending(x => x.IdleQueue)
-                .ToList();
-
-            var idleLabs = snapshot.Labs
-                .Where(x => x.IdleQueue <= _config.IdleQueueThreshold.Value)
-                .OrderBy(x => x.IdleQueue)
-                .ToList();
-
-            foreach (var targetLab in overloadedLabs)
-            {
-                var currentTransfers = _assignments.Values.Count(x => ReferenceEquals(x.TargetLab, targetLab.Entity));
-                if (currentTransfers >= _config.MaxTransferredStaffPerLab.Value)
-                {
-                    continue;
-                }
-
-                var candidate = FindCandidate(idleLabs, targetLab);
-                if (candidate != null)
-                {
-                    Assign(candidate, targetLab, now);
-                }
-            }
-        }
-
-        public void RestoreAll(string reason)
-        {
-            foreach (var assignment in _assignments.Values.ToList())
-            {
-                Restore(assignment, reason);
-            }
-        }
-
-        private LabEmployeeInfo FindCandidate(IEnumerable<LabRoomInfo> idleLabs, LabRoomInfo targetLab)
-        {
-            var targetFloor = _api.GetRoomFloor(targetLab.Entity);
-            var orderedLabs = idleLabs;
-            if (_config.PreferSameFloorStaff.Value && targetFloor.HasValue)
-            {
-                orderedLabs = idleLabs
-                    .OrderBy(x =>
-                    {
-                        var floor = _api.GetRoomFloor(x.Entity);
-                        return floor.HasValue ? Math.Abs(floor.Value - targetFloor.Value) : int.MaxValue;
-                    })
-                    .ThenBy(x => x.IdleQueue)
-                    .ToList();
-            }
-
-            foreach (var sourceLab in orderedLabs)
-            {
-                if (ReferenceEquals(sourceLab.Entity, targetLab.Entity))
-                {
-                    continue;
-                }
-
-                if (_config.SameDepartmentOnly.Value && !ReferenceEquals(sourceLab.Department, targetLab.Department))
-                {
-                    continue;
-                }
-
-                var employees = sourceLab.FreeStaff.AsEnumerable();
-                if (_config.PreferSameFloorStaff.Value && targetFloor.HasValue)
-                {
-                    employees = employees.OrderBy(x =>
-                    {
-                        var floor = _api.GetRoomFloor(x.WorkplaceRoom);
-                        return floor.HasValue ? Math.Abs(floor.Value - targetFloor.Value) : int.MaxValue;
-                    });
-                }
-
-                foreach (var employee in employees)
-                {
-                    if (_assignments.ContainsKey(employee.EmployeeComponent))
-                    {
-                        continue;
-                    }
-
-                    if (_api.IsFreeLabSpecialist(employee.Behavior) && _api.EmployeeCanUseLab(employee.EmployeeComponent, targetLab.Entity))
-                    {
-                        return employee;
-                    }
-                }
-            }
-
-            return null;
-        }
-
-        private void Assign(LabEmployeeInfo employee, LabRoomInfo targetLab, float now)
-        {
-            var original = _api.CaptureWorkplace(employee.EmployeeComponent);
-            if (original == null || original.WorkDesk == null)
-            {
-                if (_config.EnableDebugLog.Value)
-                {
-                    _log.LogDebug("Skipping " + employee.DisplayName + ": no original work desk.");
-                }
-
-                return;
-            }
-
-            var targetWorkplace = _api.FindWorkplaceForLab(targetLab.Entity, targetLab.Department, original.Shift);
-            if (targetWorkplace == null || targetWorkplace.WorkDesk == null)
-            {
-                if (_config.EnableDebugLog.Value)
-                {
-                    _log.LogDebug("Skipping " + employee.DisplayName + ": no target work desk in " + targetLab.DisplayName);
-                }
-
-                return;
-            }
-
-            var assignment = new TemporaryAssignment(employee.EmployeeComponent, employee.Behavior, original, targetLab.Entity, targetLab.DisplayName, now);
-            _assignments[employee.EmployeeComponent] = assignment;
-
-            if (!_config.EnableAssignments.Value)
-            {
-                _log.LogInfo("[dry-run] Would move " + employee.DisplayName + " to overloaded lab " + targetLab.DisplayName);
-                return;
-            }
-
-            _api.ApplyWorkplace(employee.EmployeeComponent, targetWorkplace);
-            _api.GoToWorkplace(employee.Behavior);
-            RuntimeCounters.LabTransfersStarted++;
-            RuntimeCounters.LabTransfersActive = _assignments.Count;
-            _log.LogInfo("Moved " + employee.DisplayName + " to overloaded lab " + targetLab.DisplayName + " temporarily.");
-        }
-
-        private void RestoreCompletedAssignments(LabSnapshot snapshot, float now)
-        {
-            foreach (var assignment in _assignments.Values.ToList())
-            {
-                var targetLab = snapshot.Labs.FirstOrDefault(x => ReferenceEquals(x.Entity, assignment.TargetLab));
-                var originalLab = snapshot.Labs.FirstOrDefault(x => ReferenceEquals(x.Entity, assignment.Original.WorkplaceRoom));
-                var minDurationReached = now - assignment.AssignedAt >= _config.MinTransferDurationSeconds.Value;
-                var targetRecovered = targetLab == null || targetLab.IdleQueue <= _config.IdleQueueThreshold.Value;
-                var sourceNeedsStaff = originalLab != null && originalLab.IdleQueue >= _config.OverloadedQueueThreshold.Value;
-
-                if (!_api.IsFreeLabSpecialist(assignment.Behavior))
-                {
-                    continue;
-                }
-
-                if (targetRecovered || sourceNeedsStaff || minDurationReached)
-                {
-                    Restore(assignment, targetRecovered ? "target recovered" : sourceNeedsStaff ? "source overloaded" : "minimum duration reached");
-                }
-            }
-        }
-
-        private void Restore(TemporaryAssignment assignment, string reason)
-        {
-            _assignments.Remove(assignment.EmployeeComponent);
-
-            if (!_config.EnableAssignments.Value)
-            {
-                if (_config.EnableDebugLog.Value)
-                {
-                    _log.LogInfo("[dry-run] Restored tracked assignment for " + assignment.TargetLabName + ": " + reason);
-                }
-
-                return;
-            }
-
-            if (!_api.IsFreeLabSpecialist(assignment.Behavior))
-            {
-                _assignments[assignment.EmployeeComponent] = assignment;
-                return;
-            }
-
-            _api.ApplyWorkplace(assignment.EmployeeComponent, assignment.Original);
-            _api.GoToWorkplace(assignment.Behavior);
-            RuntimeCounters.LabTransfersRestored++;
-            RuntimeCounters.LabTransfersActive = _assignments.Count;
-            _log.LogInfo("Restored lab specialist from " + assignment.TargetLabName + ": " + reason);
-        }
-    }
-
-    internal sealed class LabSnapshot
-    {
-        public LabSnapshot(List<LabRoomInfo> labs, List<LabEmployeeInfo> employees)
-        {
-            Labs = labs;
-            Employees = employees;
-        }
-
-        public List<LabRoomInfo> Labs { get; private set; }
-        public List<LabEmployeeInfo> Employees { get; private set; }
-    }
-
-    internal sealed class LabRoomInfo
-    {
-        public LabRoomInfo(object entity, object department, string displayName)
-        {
-            Entity = entity;
-            Department = department;
-            DisplayName = displayName;
-            FreeStaff = new List<LabEmployeeInfo>();
-        }
-
-        public object Entity { get; private set; }
-        public object Department { get; private set; }
-        public string DisplayName { get; private set; }
-        public int IdleQueue { get; set; }
-        public List<LabEmployeeInfo> FreeStaff { get; private set; }
-    }
-
-    internal sealed class LabEmployeeInfo
-    {
-        public LabEmployeeInfo(object character, object employeeComponent, object behavior, object workplaceRoom, object department, string displayName)
-        {
-            Character = character;
-            EmployeeComponent = employeeComponent;
-            Behavior = behavior;
-            WorkplaceRoom = workplaceRoom;
-            Department = department;
-            DisplayName = displayName;
-        }
-
-        public object Character { get; private set; }
-        public object EmployeeComponent { get; private set; }
-        public object Behavior { get; private set; }
-        public object WorkplaceRoom { get; private set; }
-        public object Department { get; private set; }
-        public string DisplayName { get; private set; }
-    }
-
-    internal sealed class TemporaryAssignment
-    {
-        public TemporaryAssignment(object employeeComponent, object behavior, WorkplaceSnapshot original, object targetLab, string targetLabName, float assignedAt)
-        {
-            EmployeeComponent = employeeComponent;
-            Behavior = behavior;
-            Original = original;
-            TargetLab = targetLab;
-            TargetLabName = targetLabName;
-            AssignedAt = assignedAt;
-        }
-
-        public object EmployeeComponent { get; private set; }
-        public object Behavior { get; private set; }
-        public WorkplaceSnapshot Original { get; private set; }
-        public object TargetLab { get; private set; }
-        public string TargetLabName { get; private set; }
-        public float AssignedAt { get; private set; }
-    }
-
-    internal sealed class WorkplaceSnapshot
-    {
-        public object WorkPlacePosition { get; set; }
-        public int WorkPlaceFloorIndex { get; set; }
-        public object Shift { get; set; }
-        public object WorkDesk { get; set; }
-        public object WorkplaceRoom { get; set; }
-    }
-
     internal static class RuntimeSettings
     {
         public static AutoLabBalancerConfig Config;
@@ -875,11 +410,6 @@ namespace ProjectHospital.AutoLabBalancer
             get { return Config != null && Config.Enabled.Value && Config.PreventNegativeEmployeePerks.Value; }
         }
 
-        public static bool LabAvailabilityOverride
-        {
-            get { return Config != null && Config.Enabled.Value && Config.EnableLabAvailabilityOverride.Value; }
-        }
-
         public static bool ProductivityDebug
         {
             get { return Config != null && Config.Enabled.Value && Config.EnableDebugProductivityLog.Value; }
@@ -888,9 +418,6 @@ namespace ProjectHospital.AutoLabBalancer
 
     internal static class RuntimeCounters
     {
-        public static int LabTransfersActive;
-        public static int LabTransfersStarted;
-        public static int LabTransfersRestored;
         public static int MedicationsAutoPlanned;
         public static int FreeTimeSuppressed;
         public static int ORCleanupPrioritiesCreated;
@@ -926,159 +453,6 @@ namespace ProjectHospital.AutoLabBalancer
             }
 
             __result = "2x Surgeon\n1x Anesthesiologist\n2x Surgery nurse";
-        }
-    }
-
-    [HarmonyPatch]
-    internal static class ProcedureComponentLabAvailabilityPatch
-    {
-        private static IEnumerable<MethodBase> TargetMethods()
-        {
-            foreach (var method in AccessTools.GetDeclaredMethods(typeof(Lopital.ProcedureComponent)))
-            {
-                if ((method.Name == "GetProcedureAvailability" || method.Name == "GetProcedureAvailabilty")
-                    && method.ReturnType == typeof(Lopital.ProcedureSceneAvailability))
-                {
-                    yield return method;
-                }
-            }
-        }
-
-        private static void Postfix(object[] __args, ref Lopital.ProcedureSceneAvailability __result)
-        {
-            if (!RuntimeSettings.LabAvailabilityOverride)
-            {
-                return;
-            }
-
-            if (__result != Lopital.ProcedureSceneAvailability.STAFF_UNAVAILABLE_LAB
-                && __result != Lopital.ProcedureSceneAvailability.STAFF_UNAVAILABLE_LAB_ROLES)
-            {
-                return;
-            }
-
-            var procedure = __args == null ? null : __args.OfType<GameDBProcedure>().FirstOrDefault();
-            var department = __args == null ? null : __args.OfType<Lopital.Department>().FirstOrDefault();
-            var room = __args == null ? null : __args.OfType<Lopital.Room>().FirstOrDefault();
-
-            if (LabAvailabilityOverrideService.CanCoverLabProcedure(procedure, department, room))
-            {
-                __result = Lopital.ProcedureSceneAvailability.AVAILABLE;
-            }
-        }
-    }
-
-    internal static class LabAvailabilityOverrideService
-    {
-        public static bool CanCoverLabProcedure(GameDBProcedure procedure, Lopital.Department department, Lopital.Room room)
-        {
-            if (procedure == null)
-            {
-                return false;
-            }
-
-            var requiredSkill = GetRequiredStatLabSkill(procedure);
-            if (requiredSkill == null && !IsStatLabScript(procedure))
-            {
-                return false;
-            }
-
-            if (!HasUsableLab(procedure, department, room))
-            {
-                return false;
-            }
-
-            var hospital = Lopital.Hospital.Instance;
-            if (hospital == null)
-            {
-                return false;
-            }
-
-            foreach (var character in ReflectionHelpers.GetEnumerableField(hospital, "m_characters"))
-            {
-                var behavior = ReflectionHelpers.GetComponentByTypeName(character, "Lopital.BehaviorLabSpecialist");
-                var employee = ReflectionHelpers.GetComponentByTypeName(character, "Lopital.EmployeeComponent");
-                if (behavior == null || employee == null)
-                {
-                    continue;
-                }
-
-                if (RuntimeSettings.Config.SameDepartmentOnly.Value && department != null)
-                {
-                    var employeeDepartment = ReflectionHelpers.ResolvePointer(ReflectionHelpers.GetField(ReflectionHelpers.GetField(employee, "m_state"), "m_department"));
-                    if (!ReferenceEquals(employeeDepartment, department))
-                    {
-                        continue;
-                    }
-                }
-
-                if (!ReflectionHelpers.InvokeBool(behavior, "IsFree") || ReflectionHelpers.InvokeBool(behavior, "GetReserved"))
-                {
-                    continue;
-                }
-
-                if (ReflectionHelpers.InvokeBool(employee, "IsPerformingAProcedure"))
-                {
-                    continue;
-                }
-
-                if (requiredSkill != null && !HasSkill(employee, requiredSkill))
-                {
-                    continue;
-                }
-
-                if (RuntimeSettings.Config.EnableDebugLog.Value && RuntimeSettings.Logger != null)
-                {
-                    RuntimeSettings.Logger.LogDebug("Lab availability override: matching free lab specialist found for " + procedure);
-                }
-
-                return true;
-            }
-
-            return false;
-        }
-
-        private static bool HasUsableLab(GameDBProcedure procedure, Lopital.Department department, Lopital.Room room)
-        {
-            if (room != null && room.AllowsProcedure(procedure))
-            {
-                return true;
-            }
-
-            if (department == null)
-            {
-                return false;
-            }
-
-            var state = ReflectionHelpers.GetField(department, "m_departmentPersistentData");
-            foreach (var pointer in ReflectionHelpers.GetEnumerableField(state, "m_rooms"))
-            {
-                var lab = ReflectionHelpers.ResolvePointer(pointer) as Lopital.Room;
-                if (lab != null && lab.AllowsProcedure(procedure))
-                {
-                    return true;
-                }
-            }
-
-            return false;
-        }
-
-        private static object GetRequiredStatLabSkill(GameDBProcedure procedure)
-        {
-            var property = typeof(GameDBProcedure).GetProperty("RequiredStatLabQualificationRef", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-            return property == null ? null : ReflectionHelpers.ResolvePointer(property.GetValue(procedure, null));
-        }
-
-        private static bool IsStatLabScript(GameDBProcedure procedure)
-        {
-            var script = ReflectionHelpers.GetStringProperty(procedure, "ProcedureScript");
-            return !string.IsNullOrEmpty(script) && script.IndexOf("StatLab", StringComparison.OrdinalIgnoreCase) >= 0;
-        }
-
-        private static bool HasSkill(object employee, object skill)
-        {
-            var method = employee.GetType().GetMethod("HasSkill", new[] { skill.GetType() });
-            return method != null && Equals(method.Invoke(employee, new[] { skill }), true);
         }
     }
 
@@ -1322,388 +696,6 @@ namespace ProjectHospital.AutoLabBalancer
         }
     }
 
-    internal sealed class GameApi
-    {
-        private readonly Type _employeeComponentType;
-        private readonly Type _roomType;
-
-        public GameApi(ManualLogSource log)
-        {
-            var gameAssembly = AppDomain.CurrentDomain.GetAssemblies().FirstOrDefault(x => x.GetName().Name == "Assembly-CSharp");
-            if (gameAssembly == null)
-            {
-                return;
-            }
-
-            LabProcedureManagerType = gameAssembly.GetType("Lopital.LabProcedureManager");
-            HospitalType = gameAssembly.GetType("Lopital.Hospital");
-            _employeeComponentType = gameAssembly.GetType("Lopital.EmployeeComponent");
-            _roomType = gameAssembly.GetType("Lopital.Room");
-            IsReady = LabProcedureManagerType != null && HospitalType != null && _employeeComponentType != null;
-        }
-
-        public bool IsReady { get; private set; }
-        public Type LabProcedureManagerType { get; private set; }
-        public Type HospitalType { get; private set; }
-
-        public object GetStaticProperty(Type type, string name)
-        {
-            var property = type.GetProperty(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
-            return property == null ? null : property.GetValue(null, null);
-        }
-
-        public IEnumerable<object> GetEnumerableField(object instance, string fieldName)
-        {
-            var value = GetField(instance, fieldName) as IEnumerable;
-            if (value == null)
-            {
-                yield break;
-            }
-
-            foreach (var item in value)
-            {
-                if (item != null)
-                {
-                    yield return item;
-                }
-            }
-        }
-
-        public object GetField(object instance, string fieldName)
-        {
-            if (instance == null)
-            {
-                return null;
-            }
-
-            var field = instance.GetType().GetField(fieldName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static);
-            return field == null ? null : field.GetValue(instance);
-        }
-
-        public object ResolveEntityPointer(object pointer)
-        {
-            if (pointer == null)
-            {
-                return null;
-            }
-
-            foreach (var name in new[] { "Get", "GetEntity", "Entry", "DEBUG_Entity", "Value" })
-            {
-                var method = pointer.GetType().GetMethod(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, Type.EmptyTypes, null);
-                if (method != null)
-                {
-                    try
-                    {
-                        return method.Invoke(pointer, null);
-                    }
-                    catch
-                    {
-                    }
-                }
-
-                var property = pointer.GetType().GetProperty(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                if (property != null)
-                {
-                    try
-                    {
-                        return property.GetValue(pointer, null);
-                    }
-                    catch
-                    {
-                    }
-                }
-            }
-
-            return null;
-        }
-
-        public object GetComponentByTypeName(object entity, string typeName)
-        {
-            foreach (var component in GetEnumerableField(entity, "m_components"))
-            {
-                if (component.GetType().FullName == typeName)
-                {
-                    return component;
-                }
-            }
-
-            return null;
-        }
-
-        public IEnumerable<object> EnumerateDepartmentRooms(object department)
-        {
-            var state = GetField(department, "m_departmentPersistentData");
-            foreach (var pointer in GetEnumerableField(state, "m_rooms"))
-            {
-                var room = ResolveEntityPointer(pointer);
-                if (room != null)
-                {
-                    yield return room;
-                }
-            }
-        }
-
-        public bool IsLabRoom(object room)
-        {
-            var name = GetEntityName(room);
-            if (!string.IsNullOrEmpty(name) && name.IndexOf("lab", StringComparison.OrdinalIgnoreCase) >= 0)
-            {
-                return true;
-            }
-
-            var state = GetField(room, "m_roomPersistentData");
-            var roomTypePointer = GetField(state, "m_roomType");
-            var roomType = ResolveEntityPointer(roomTypePointer) ?? roomTypePointer;
-            var roomTypeText = roomType == null ? string.Empty : roomType.ToString();
-            return roomTypeText.IndexOf("lab", StringComparison.OrdinalIgnoreCase) >= 0;
-        }
-
-        public bool IsIdleLabProcedure(object procedure)
-        {
-            var method = procedure.GetType().GetMethod("IsIdle", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, Type.EmptyTypes, null);
-            return method != null && Equals(method.Invoke(procedure, null), true);
-        }
-
-        public bool IsFreeLabSpecialist(object behavior)
-        {
-            return behavior != null && InvokeBool(behavior, "IsFree") && !InvokeBool(behavior, "GetReserved");
-        }
-
-        public bool IsEmployeePerformingProcedure(object employee)
-        {
-            return InvokeBool(employee, "IsPerformingAProcedure");
-        }
-
-        public bool EmployeeCanUseLab(object employee, object lab)
-        {
-            return employee != null && lab != null;
-        }
-
-        public object GetEmployeeDepartment(object employee)
-        {
-            var state = GetField(employee, "m_state");
-            return ResolveEntityPointer(GetField(state, "m_department"));
-        }
-
-        public object GetEmployeeWorkplaceRoom(object employee)
-        {
-            var snapshot = CaptureWorkplace(employee);
-            return snapshot == null ? null : snapshot.WorkplaceRoom;
-        }
-
-        public int? GetRoomFloor(object room)
-        {
-            return InvokeInt(room, "GetFloorIndex");
-        }
-
-        public object GetEmployeeWorkDesk(object employee)
-        {
-            var state = GetField(employee, "m_state");
-            return ResolveEntityPointer(GetField(state, "m_workDesk"));
-        }
-
-        public WorkplaceSnapshot CaptureWorkplace(object employee)
-        {
-            var state = GetField(employee, "m_state");
-            if (state == null)
-            {
-                return null;
-            }
-
-            var workDesk = ResolveEntityPointer(GetField(state, "m_workDesk"));
-            return new WorkplaceSnapshot
-            {
-                WorkPlacePosition = GetField(state, "m_workPlacePosition"),
-                WorkPlaceFloorIndex = Convert.ToInt32(GetField(state, "m_workPlaceFloorIndex")),
-                Shift = GetField(state, "m_shift"),
-                WorkDesk = workDesk,
-                WorkplaceRoom = null
-            };
-        }
-
-        public WorkplaceSnapshot FindWorkplaceForLab(object lab, object department, object shift)
-        {
-            var departmentState = GetField(department, "m_departmentPersistentData");
-            foreach (var pointer in GetEnumerableField(departmentState, "m_objects"))
-            {
-                var target = ResolveEntityPointer(pointer) ?? pointer;
-                if (target == null || target.GetType().FullName != "Lopital.TileObject")
-                {
-                    continue;
-                }
-
-                if (!IsTileObjectInRoom(target, lab))
-                {
-                    continue;
-                }
-
-                if (!IsPotentialWorkspace(target) || GetWorkspaceOwner(target, shift) != null)
-                {
-                    continue;
-                }
-
-                var tileState = GetField(target, "m_state");
-                var position = GetField(tileState, "m_position");
-                var floor = GetField(tileState, "m_floorIndex");
-                if (position == null || floor == null)
-                {
-                    continue;
-                }
-
-                return new WorkplaceSnapshot
-                {
-                    WorkPlacePosition = position,
-                    WorkPlaceFloorIndex = Convert.ToInt32(floor),
-                    Shift = shift,
-                    WorkDesk = target,
-                    WorkplaceRoom = lab
-                };
-            }
-
-            return null;
-        }
-
-        public void ApplyWorkplace(object employee, WorkplaceSnapshot workplace)
-        {
-            var method = _employeeComponentType.GetMethod("SetWorkplace", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-            if (method == null)
-            {
-                throw new MissingMethodException("EmployeeComponent.SetWorkplace");
-            }
-
-            method.Invoke(employee, new[] { workplace.WorkPlacePosition, workplace.WorkPlaceFloorIndex, workplace.Shift, workplace.WorkDesk });
-        }
-
-        public void GoToWorkplace(object behavior)
-        {
-            var method = behavior.GetType().GetMethod("GoToWorkplace", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
-                ?? behavior.GetType().GetMethod("GoToWorkPlace", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-            if (method != null)
-            {
-                method.Invoke(behavior, null);
-            }
-        }
-
-        public string GetEntityName(object entity)
-        {
-            if (entity == null)
-            {
-                return "<null>";
-            }
-
-            var property = entity.GetType().GetProperty("Name", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-            var name = property == null ? null : property.GetValue(entity, null) as string;
-            return string.IsNullOrEmpty(name) ? entity.ToString() : name;
-        }
-
-        public object FindRoomContainingTileObject(object tileObject, IEnumerable<object> rooms)
-        {
-            if (tileObject == null || rooms == null)
-            {
-                return null;
-            }
-
-            foreach (var room in rooms)
-            {
-                if (IsTileObjectInRoom(tileObject, room))
-                {
-                    return room;
-                }
-            }
-
-            return null;
-        }
-
-        private bool IsTileObjectInRoom(object tileObject, object room)
-        {
-            if (tileObject == null || room == null)
-            {
-                return false;
-            }
-
-            var tileState = GetField(tileObject, "m_state");
-            var position = GetField(tileState, "m_position");
-            var objectFloor = GetField(tileState, "m_floorIndex");
-            if (position == null || objectFloor == null)
-            {
-                return false;
-            }
-
-            var roomFloor = InvokeInt(room, "GetFloorIndex");
-            if (roomFloor.HasValue && Convert.ToInt32(objectFloor) != roomFloor.Value)
-            {
-                return false;
-            }
-
-            var method = room.GetType().GetMethod("IsPositionInRoom", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-            return method != null && Equals(method.Invoke(room, new[] { position }), true);
-        }
-
-        private bool IsPotentialWorkspace(object tileObject)
-        {
-            var gameObject = ResolveEntityPointer(GetField(GetField(tileObject, "m_state"), "m_gameDBObject")) ?? GetField(GetField(tileObject, "m_state"), "m_gameDBObject");
-            var tags = GetStringArrayProperty(gameObject, "Tags");
-            if (tags.Any(tag => tag.IndexOf("workspace", StringComparison.OrdinalIgnoreCase) >= 0 || tag.IndexOf("workplace", StringComparison.OrdinalIgnoreCase) >= 0))
-            {
-                return true;
-            }
-
-            var useDirection = GetStringProperty(gameObject, "UseDirection");
-            return !string.IsNullOrEmpty(useDirection) && tags.Any(tag => tag.IndexOf("lab", StringComparison.OrdinalIgnoreCase) >= 0);
-        }
-
-        private object GetWorkspaceOwner(object tileObject, object shift)
-        {
-            var method = tileObject.GetType().GetMethod("GetWorkspaceOwner", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-            return method == null ? null : method.Invoke(tileObject, new[] { shift });
-        }
-
-        private bool InvokeBool(object instance, string methodName)
-        {
-            if (instance == null)
-            {
-                return false;
-            }
-
-            var method = instance.GetType().GetMethod(methodName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, Type.EmptyTypes, null);
-            return method != null && Equals(method.Invoke(instance, null), true);
-        }
-
-        private int? InvokeInt(object instance, string methodName)
-        {
-            var method = instance.GetType().GetMethod(methodName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, Type.EmptyTypes, null);
-            if (method == null)
-            {
-                return null;
-            }
-
-            return Convert.ToInt32(method.Invoke(instance, null));
-        }
-
-        private string GetStringProperty(object instance, string propertyName)
-        {
-            if (instance == null)
-            {
-                return null;
-            }
-
-            var property = instance.GetType().GetProperty(propertyName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-            return property == null ? null : property.GetValue(instance, null) as string;
-        }
-
-        private IEnumerable<string> GetStringArrayProperty(object instance, string propertyName)
-        {
-            if (instance == null)
-            {
-                return Enumerable.Empty<string>();
-            }
-
-            var property = instance.GetType().GetProperty(propertyName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-            var values = property == null ? null : property.GetValue(instance, null) as string[];
-            return values ?? Enumerable.Empty<string>();
-        }
-    }
-
     internal sealed class ReferenceEqualityComparer : IEqualityComparer<object>
     {
         public static readonly ReferenceEqualityComparer Instance = new ReferenceEqualityComparer();
@@ -1719,3 +711,4 @@ namespace ProjectHospital.AutoLabBalancer
         }
     }
 }
+

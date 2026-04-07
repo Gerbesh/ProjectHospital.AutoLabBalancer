@@ -1,15 +1,10 @@
-# Project Hospital Auto Lab Balancer
+# Project Hospital Productivity Tweaks
 
 Probe BepInEx 5 plugin for Project Hospital Unity Mono.
 
 ## What this version does
 
 - Runs as a local BepInEx plugin.
-- Every `TickIntervalSeconds` seconds reads idle lab procedures from `LabProcedureManager`.
-- Groups the queue by `LabProcedurePersistentData.m_statLab`.
-- Finds free `BehaviorLabSpecialist` employees with `IsFree() == true`, `GetReserved() == false`, and `EmployeeComponent.IsPerformingAProcedure() == false`.
-- In dry-run mode logs planned moves from idle labs to overloaded labs.
-- If `EnableAssignments=true`, temporarily calls `EmployeeComponent.SetWorkplace(...)` and later restores the captured original workplace.
 - If `PreventNegativeEmployeePerks=true`, removes generated negative employee perks after staff perk generation and after character editor fill.
 - Productivity Tweaks:
   - after diagnosis, plans all available prescription/receipt treatments for known active symptoms when `EnableAggressiveMedicationPlanning=true`;
@@ -21,27 +16,27 @@ Probe BepInEx 5 plugin for Project Hospital Unity Mono.
   - adds a flexible stretcher fallback: if vanilla cannot find a free stretcher/wheelchair in the selected department, it searches other departments for a free valid matching transport object and lets the vanilla stretcher state machine store/restore its original location;
   - applies an emergency speed multiplier in detected critical/collapse patient contexts;
   - runs a conservative stale reservation watchdog for employee patient reservations and room reservations.
-- Lab balancing prefers same-floor staff when `PreferSameFloorStaff=true`.
-- The `F8` window shows runtime counters for transfers, medication planning, free-time suppression, OR cleanup, stuck reservation cleanup, transport fallback, and emergency speed boosts.
+- The lab auto-balancer and lab order availability override were removed in `0.9.0`; the overlay can still show read-only lab bottleneck counters.
+- The `F8` window shows runtime counters for medication planning, free-time suppression, OR cleanup, stuck reservation cleanup, transport fallback, and emergency speed boosts.
 - The `F8` window is split into pages: settings, counters, bottlenecks, and surgery.
 - The surgery page highlights active bottlenecks for planned surgeries: waiting room/staff/transport/critical queue, current transport waits, and per-surgery staff readiness. Duplicate role requirements are counted, so surgeries that require two surgery nurses show `EMPL_ROLE_SURGERY_NURSE 1/2` instead of a misleading single-role summary.
 - The mod can write periodic `[SurgeryAnalytics]` lines to the BepInEx log when `EnableSurgeryAnalyticsLog=true`.
 - Chained hospitalized diagnostics keeps a hospitalized patient near diagnostics when another planned examination is queued, instead of always returning to bed between CT/MRI/etc. It also has a conservative stale reservation retry.
 - Manual player-triggered referrals to another hospital can pay a configurable partial fee for untreated patients.
 - Automatic equipment-blocked referrals are conservative and disabled by default; hospitalized patients are left to the vanilla hospitalization flow.
-- Press `F8` in game to open the mod settings window and toggle lab balancing, negative perk blocking, and Productivity Tweaks.
+- Press `F8` in game to open the mod settings window and toggle negative perk blocking and Productivity Tweaks.
 
 ## Safety defaults
 
-`EnableAssignments=false` by default. The first run should be diagnostic only:
+Safe defaults:
 
 ```ini
 [General]
 Enabled = true
-EnableAssignments = false
 EnableDebugLog = true
 PreventNegativeEmployeePerks = false
 SettingsWindowKey = F8
+TickIntervalSeconds = 30
 ```
 
 ```ini
@@ -72,8 +67,6 @@ EnableEquipmentReferral = false
 EnableManualReferralPayment = true
 ManualReferralPaymentPercent = 10
 ```
-
-Only set `EnableAssignments=true` on a disposable test save. This probe uses `SetWorkplace(...)`, which writes workplace fields in employee persistent data while the transfer is active. Do not save during an active transfer until this has been validated in-game.
 
 ## Build
 
