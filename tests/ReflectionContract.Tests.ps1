@@ -328,7 +328,21 @@ if (Test-Path -LiteralPath $examinationsXml) {
     foreach ($requiredId in @("EXM_CT", "EXM_CT_ENTEROGRAPHY", "EXM_MRI", "EXM_USG", "EXM_FAST", "EXM_ANGIOGRAPHY", "EXM_X_RAY_BACK", "EXM_X_RAY_HEAD", "EXM_X_RAY_LOWER_LIMB", "EXM_X_RAY_TORSO", "EXM_X_RAY_UPPER_LIMB")) {
         Assert-True ($examinationIds -contains $requiredId) "Radiology examination exists: $requiredId"
     }
+
+    foreach ($requiredId in @("EXM_ECG", "EXM_ECHO", "EXM_CC_ECHO", "EXM_HEART_MONITORING", "EXM_URGENT_BLOOD_ANALYSIS", "EXM_EEG", "EXM_EMG", "EXM_PERIMETRY", "EXM_TONOMETRY", "EXM_BLOOD_TEST_TESTING", "EXM_CBC_TESTING", "EXM_BACTERIA_CULTIVATION_TESTING", "EXM_FUNGAL_CULTIVATION_TESTING", "EXM_BIOPSY_TESTING", "EXM_STOOL_ANALYSIS_TESTING", "EXM_URINE_SAMPLE_ANALYSIS_TESTING", "EXM_INTERVIEW", "EXM_PHYSICAL_AND_VISUAL_EXAMINATION")) {
+        Assert-True ($examinationIds -contains $requiredId) "Examination queue category input exists: $requiredId"
+    }
 }
+
+Write-Host "Section: Intake control"
+Require-Method "Lopital.InsuranceManager" "CalculatePatientCounts" @() | Out-Null
+Require-Property "Lopital.InsuranceManager" "Instance" "Lopital.InsuranceManager" | Out-Null
+Require-Field "Lopital.InsuranceManager" "m_state" | Out-Null
+Require-Field "Lopital.InsuranceManagerPersistentData" "m_insuranceCompanies" | Out-Null
+Require-Field "Lopital.InsuranceCompany" "m_currentPatients" | Out-Null
+Require-Field "Lopital.InsuranceCompany" "m_currentImmobilePatients" | Out-Null
+Require-Method "Lopital.InsuranceCompany" "IsContracted" @() "System.Boolean" | Out-Null
+Require-Method "Lopital.Department" "AcceptsOutpatients" @() "System.Boolean" | Out-Null
 
 Write-Host "Section: Summary"
 if ($script:Failures.Count -gt 0) {

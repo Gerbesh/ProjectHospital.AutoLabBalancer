@@ -16,7 +16,7 @@ namespace ProjectHospital.AutoLabBalancer
     {
         public const string PluginGuid = "local.projecthospital.autolabbalancer";
         public const string PluginName = "Project Hospital Productivity Tweaks";
-        public const string PluginVersion = "0.9.2";
+        public const string PluginVersion = "0.9.3";
 
         private AutoLabBalancerConfig _config;
         private Harmony _harmony;
@@ -111,7 +111,17 @@ namespace ProjectHospital.AutoLabBalancer
                 + "/" + snapshot.RadiologyXrayExaminations
                 + "/" + snapshot.RadiologyUsgExaminations
                 + "/" + snapshot.RadiologyAngioExaminations
-                + "/" + snapshot.RadiologyOtherExaminations
+                + "/" + snapshot.CardiologyExaminations
+                + "/" + snapshot.NeurologyExaminations
+                + "/" + snapshot.HematologyExaminations
+                + "/" + snapshot.MicrobiologyExaminations
+                + "/" + snapshot.HistologyExaminations
+                + "/" + snapshot.OfficeExaminations
+                + "/" + snapshot.OtherExaminations
+                + ModText.T("AnalyticsIntake") + snapshot.IntakeClinicPatients
+                + "/" + snapshot.IntakeClinicCapacity
+                + "/" + snapshot.IntakeAmbulancePatients
+                + "/" + snapshot.IntakeAmbulanceCapacity
                 + ModText.T("AnalyticsFreeStaff") + snapshot.FreeDoctors
                 + "/" + snapshot.FreeNurses
                 + "/" + snapshot.FreeJanitors
@@ -222,6 +232,10 @@ namespace ProjectHospital.AutoLabBalancer
             DrawToggle(_config.EnableBottleneckOverlay, ModText.T("ShowBottleneckOverlay"));
             DrawToggle(_config.EnableSurgeryAnalyticsLog, ModText.T("SurgeryAnalyticsLog"));
             DrawToggle(_config.EnableSurgeryTooltipFix, ModText.T("FixSurgeryTooltip"));
+            GUILayout.Space(8f);
+            GUILayout.Label(ModText.T("IntakeControl"));
+            DrawToggle(_config.EnableIntakeControl, ModText.T("EnableIntakeControl"));
+            DrawToggle(_config.EnableDynamicIntakeByDoctors, ModText.T("EnableDynamicIntakeByDoctors"));
         }
 
         private void DrawCountersPage()
@@ -301,7 +315,19 @@ namespace ProjectHospital.AutoLabBalancer
                     _overlaySnapshot.RadiologyXrayExaminations,
                     _overlaySnapshot.RadiologyUsgExaminations,
                     _overlaySnapshot.RadiologyAngioExaminations,
-                    _overlaySnapshot.RadiologyOtherExaminations));
+                    _overlaySnapshot.CardiologyExaminations,
+                    _overlaySnapshot.NeurologyExaminations,
+                    _overlaySnapshot.HematologyExaminations,
+                    _overlaySnapshot.MicrobiologyExaminations,
+                    _overlaySnapshot.HistologyExaminations,
+                    _overlaySnapshot.OfficeExaminations,
+                    _overlaySnapshot.OtherExaminations));
+                GUILayout.Label(ModText.F("IntakeLine",
+                    _overlaySnapshot.IntakeClinicPatients,
+                    _overlaySnapshot.IntakeClinicCapacity,
+                    _overlaySnapshot.IntakeAmbulancePatients,
+                    _overlaySnapshot.IntakeAmbulanceCapacity,
+                    _overlaySnapshot.IntakeOutpatientDoctorCapacity));
             }
 
             GUILayout.Label(ModText.F("SurgeryLine", _overlaySnapshot.PlannedSurgeries, _overlaySnapshot.CriticalSurgeryPatients, _overlaySnapshot.WaitingSurgeryDepartments));
@@ -368,6 +394,14 @@ namespace ProjectHospital.AutoLabBalancer
         public ConfigEntry<bool> EnableManualReferralPayment { get; private set; }
         public ConfigEntry<int> ManualReferralPaymentPercent { get; private set; }
         public ConfigEntry<bool> EquipmentReferralDebugLog { get; private set; }
+        public ConfigEntry<bool> EnableIntakeControl { get; private set; }
+        public ConfigEntry<bool> EnableDynamicIntakeByDoctors { get; private set; }
+        public ConfigEntry<int> MaxClinicPatientsPerDay { get; private set; }
+        public ConfigEntry<int> MaxAmbulancePatientsPerDay { get; private set; }
+        public ConfigEntry<int> ClinicPatientsPerDoctorPerShift { get; private set; }
+        public ConfigEntry<int> AmbulancePatientsPerDoctorPerShift { get; private set; }
+        public ConfigEntry<int> ReserveEmergencyCapacityPercent { get; private set; }
+        public ConfigEntry<bool> IntakeDebugLog { get; private set; }
 
         public static AutoLabBalancerConfig Bind(ConfigFile config)
         {
@@ -404,7 +438,15 @@ namespace ProjectHospital.AutoLabBalancer
                 EquipmentReferralPaymentPercent = config.Bind("Referral", "EquipmentReferralPaymentPercent", 20, "Percent of the patient's expected insurance payment paid for equipment-blocked referrals."),
                 EnableManualReferralPayment = config.Bind("Referral", "EnableManualReferralPayment", true, "Pay a small partial fee when the player manually sends an untreated patient to another hospital."),
                 ManualReferralPaymentPercent = config.Bind("Referral", "ManualReferralPaymentPercent", 10, "Percent of the patient's expected insurance payment paid for player-triggered untreated referrals."),
-                EquipmentReferralDebugLog = config.Bind("Referral", "EquipmentReferralDebugLog", false, "Write detailed equipment referral decisions.")
+                EquipmentReferralDebugLog = config.Bind("Referral", "EquipmentReferralDebugLog", false, "Write detailed equipment referral decisions."),
+                EnableIntakeControl = config.Bind("IntakeControl", "EnableIntakeControl", false, "When true, cap today's insurance patient intake after vanilla insurance calculation. Disabled by default."),
+                EnableDynamicIntakeByDoctors = config.Bind("IntakeControl", "EnableDynamicIntakeByDoctors", true, "Calculate intake capacity from available outpatient doctors."),
+                MaxClinicPatientsPerDay = config.Bind("IntakeControl", "MaxClinicPatientsPerDay", 0, "Hard cap for clinic/mobile patients per day. 0 disables this hard cap."),
+                MaxAmbulancePatientsPerDay = config.Bind("IntakeControl", "MaxAmbulancePatientsPerDay", 0, "Hard cap for ambulance/immobile patients per day. 0 disables this hard cap."),
+                ClinicPatientsPerDoctorPerShift = config.Bind("IntakeControl", "ClinicPatientsPerDoctorPerShift", 10, "Dynamic clinic/mobile patient capacity per outpatient doctor."),
+                AmbulancePatientsPerDoctorPerShift = config.Bind("IntakeControl", "AmbulancePatientsPerDoctorPerShift", 3, "Dynamic ambulance/immobile patient capacity per outpatient doctor."),
+                ReserveEmergencyCapacityPercent = config.Bind("IntakeControl", "ReserveEmergencyCapacityPercent", 15, "Percent of dynamic capacity reserved for emergency headroom."),
+                IntakeDebugLog = config.Bind("IntakeControl", "IntakeDebugLog", false, "Write detailed intake-control decisions.")
             };
         }
     }
