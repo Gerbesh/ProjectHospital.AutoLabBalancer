@@ -56,7 +56,7 @@ namespace ProjectHospital.AutoLabBalancer
         public static int GetNextCost(HospitalUpgradeDefinition definition)
         {
             var level = GetLevel(definition);
-            return level >= MaxLevel ? 0 : definition.Costs[level];
+            return level >= MaxLevel ? 0 : GetCost(definition, level);
         }
 
         public static bool TryBuy(HospitalUpgradeDefinition definition, out string message)
@@ -68,7 +68,7 @@ namespace ProjectHospital.AutoLabBalancer
                 return false;
             }
 
-            var cost = definition.Costs[level];
+            var cost = GetCost(definition, level);
             var balance = GetBalance();
             if (balance < cost)
             {
@@ -94,6 +94,19 @@ namespace ProjectHospital.AutoLabBalancer
             entry = RuntimeSettings.Config.SourceConfig.Bind("HospitalUpgrades", definition.Id, 0, "Purchased level for " + definition.Id + ".");
             Levels[definition.Id] = entry;
             return entry;
+        }
+
+        private static int GetCost(HospitalUpgradeDefinition definition, int level)
+        {
+            if (RuntimeSettings.Config != null && RuntimeSettings.Config.DevCheapUpgrades.Value)
+            {
+                var cheapCosts = definition.Costs[definition.Costs.Length - 1] >= 1000000
+                    ? new[] { 7500, 15000, 30000, 50000, 75000, 100000 }
+                    : new[] { 7000, 14000, 27000, 47000, 67000, 100000 };
+                return cheapCosts[Mathf.Clamp(level, 0, cheapCosts.Length - 1)];
+            }
+
+            return definition.Costs[level];
         }
 
         private static int GetBalance()

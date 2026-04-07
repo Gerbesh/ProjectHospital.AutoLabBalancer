@@ -16,7 +16,7 @@ namespace ProjectHospital.AutoLabBalancer
     {
         public const string PluginGuid = "local.projecthospital.autolabbalancer";
         public const string PluginName = "Project Hospital Productivity Tweaks";
-        public const string PluginVersion = "0.10.0";
+        public const string PluginVersion = "0.10.1";
 
         private AutoLabBalancerConfig _config;
         private Harmony _harmony;
@@ -238,6 +238,9 @@ namespace ProjectHospital.AutoLabBalancer
             GUILayout.Label(ModText.T("IntakeControl"));
             DrawToggle(_config.EnableIntakeControl, ModText.T("EnableIntakeControl"));
             DrawToggle(_config.EnableDynamicIntakeByDoctors, ModText.T("EnableDynamicIntakeByDoctors"));
+            GUILayout.Space(8f);
+            GUILayout.Label(ModText.T("DeveloperTools"));
+            DrawToggle(_config.DevCheapUpgrades, ModText.T("DevCheapUpgrades"));
         }
 
         private void DrawCountersPage()
@@ -410,6 +413,7 @@ namespace ProjectHospital.AutoLabBalancer
         public ConfigEntry<int> AmbulancePatientsPerDoctorPerShift { get; private set; }
         public ConfigEntry<int> ReserveEmergencyCapacityPercent { get; private set; }
         public ConfigEntry<bool> IntakeDebugLog { get; private set; }
+        public ConfigEntry<bool> DevCheapUpgrades { get; private set; }
         public ConfigFile SourceConfig { get; private set; }
 
         public static AutoLabBalancerConfig Bind(ConfigFile config)
@@ -460,7 +464,8 @@ namespace ProjectHospital.AutoLabBalancer
                 ClinicPatientsPerDoctorPerShift = config.Bind("IntakeControl", "ClinicPatientsPerDoctorPerShift", 10, "Dynamic clinic/mobile patient capacity per outpatient doctor."),
                 AmbulancePatientsPerDoctorPerShift = config.Bind("IntakeControl", "AmbulancePatientsPerDoctorPerShift", 3, "Dynamic ambulance/immobile patient capacity per outpatient doctor."),
                 ReserveEmergencyCapacityPercent = config.Bind("IntakeControl", "ReserveEmergencyCapacityPercent", 15, "Percent of dynamic capacity reserved for emergency headroom."),
-                IntakeDebugLog = config.Bind("IntakeControl", "IntakeDebugLog", false, "Write detailed intake-control decisions.")
+                IntakeDebugLog = config.Bind("IntakeControl", "IntakeDebugLog", false, "Write detailed intake-control decisions."),
+                DevCheapUpgrades = config.Bind("Developer", "DevCheapUpgrades", false, "Developer helper: reduce hospital upgrade prices so the most expensive next level costs 100000.")
             };
         }
     }
