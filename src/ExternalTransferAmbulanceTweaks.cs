@@ -90,49 +90,9 @@ namespace ProjectHospital.AutoLabBalancer
 
         public static void TryCreateParallelExternalAmbulance(object manager, ref Ambulance result)
         {
-            if (!Enabled || result != null || manager == null || !RuntimeSettings.Config.EnableParallelExternalTransferAmbulances.Value)
-            {
-                return;
-            }
-
-            var ambulances = ReflectionHelpers.GetField(manager, "m_ambulances") as IList;
-            if (ambulances == null || !HasBusyExternalAmbulance(ambulances))
-            {
-                return;
-            }
-
-            var freeExisting = FindFreeExternalAmbulance(ambulances);
-            if (freeExisting != null)
-            {
-                result = freeExisting;
-                return;
-            }
-
-            var externalCount = CountExternalAmbulances(ambulances);
-            if (externalCount >= Math.Max(1, RuntimeSettings.Config.MaxParallelExternalTransferAmbulances.Value))
-            {
-                return;
-            }
-
-            var ground = Hospital.Instance == null ? null : Hospital.Instance.GetGroundFloor();
-            if (ground == null)
-            {
-                return;
-            }
-
-            var ambulanceType = Database.Instance.GetEntry<GameDBCompositeObject>("COMPOSITE_OBJECT_AMBULANCE_01");
-            var y = Math.Max(2, ground.Size.m_y - 10 - (externalCount * 3));
-            var ambulanceObject = ground.AddCompositeObject(ambulanceType, new Vector2i(9, y), Direction.NE, Color.black, null, silent: true, noRotation: true);
-            if (ambulanceObject == null)
-            {
-                return;
-            }
-
-            var ambulance = new Ambulance(ambulanceObject, external: true, helicopter: false);
-            ambulances.Add(ambulance);
-            HideAmbulanceObject(ambulance, true);
-            result = ambulance;
-            RuntimeCounters.ExternalTransferAmbulanceBatches++;
+            // Disabled intentionally. Hidden duplicate external ambulances can desynchronize
+            // vanilla AmbulancePersistentData and freeze transfer flow.
+            return;
         }
 
         public static void HideSecondaryExternalAmbulance(object ambulance)

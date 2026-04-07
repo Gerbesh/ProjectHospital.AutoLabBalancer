@@ -16,7 +16,7 @@ namespace ProjectHospital.AutoLabBalancer
     {
         public const string PluginGuid = "local.projecthospital.autolabbalancer";
         public const string PluginName = "Project Hospital Productivity Tweaks";
-        public const string PluginVersion = "0.15.1";
+        public const string PluginVersion = "0.15.2";
 
         private AutoLabBalancerConfig _config;
         private Harmony _harmony;
@@ -286,7 +286,6 @@ namespace ProjectHospital.AutoLabBalancer
             GUILayout.Label(ModText.T("UnsupportedDiagnosisIncome") + RuntimeCounters.UnsupportedDiagnosisReferralIncome);
             GUILayout.Label(ModText.T("ManualReferralPayments") + RuntimeCounters.ManualReferralPayments);
             GUILayout.Label(ModText.T("ManualReferralIncome") + RuntimeCounters.ManualReferralIncome);
-            GUILayout.Label(ModText.T("ExternalTransferAmbulanceBatches") + RuntimeCounters.ExternalTransferAmbulanceBatches);
             GUILayout.EndVertical();
             GUILayout.EndHorizontal();
         }
@@ -596,8 +595,8 @@ namespace ProjectHospital.AutoLabBalancer
                 ReferUnsupportedIfDepartmentMissing = config.Bind("Referral", "ReferUnsupportedIfDepartmentMissing", true, "Refer diagnosed outpatients when the diagnosis profile department is not active or has no working clinic."),
                 ReferUnsupportedIfNoProfileDoctor = config.Bind("Referral", "ReferUnsupportedIfNoProfileDoctor", true, "Refer diagnosed outpatients when no currently available doctor is found in the diagnosis profile department."),
                 EquipmentReferralDebugLog = config.Bind("Referral", "EquipmentReferralDebugLog", false, "Write detailed equipment referral decisions."),
-                EnableExternalTransferAmbulanceTweaks = config.Bind("Referral", "EnableExternalTransferAmbulanceTweaks", true, "Speed up external ambulances/paramedics that transport sent-away patients to another hospital."),
-                EnableParallelExternalTransferAmbulances = config.Bind("Referral", "EnableParallelExternalTransferAmbulances", true, "Allow multiple sent-away transfer jobs to run in parallel using hidden duplicate external ambulances so patients are not processed strictly one by one."),
+                EnableExternalTransferAmbulanceTweaks = config.Bind("Referral", "EnableExternalTransferAmbulanceTweaks", false, "Speed up external ambulances/paramedics that transport sent-away patients to another hospital. Disabled by default because vanilla external ambulance flow is fragile."),
+                EnableParallelExternalTransferAmbulances = config.Bind("Referral", "EnableParallelExternalTransferAmbulances", false, "Allow multiple sent-away transfer jobs to run in parallel. Disabled; hidden duplicate external ambulances can desynchronize vanilla transfer flow."),
                 ExternalTransferAmbulanceSpeedMultiplier = config.Bind("Referral", "ExternalTransferAmbulanceSpeedMultiplier", 3.0f, "Movement/time multiplier for external transfer ambulances and their paramedics."),
                 MaxParallelExternalTransferAmbulances = config.Bind("Referral", "MaxParallelExternalTransferAmbulances", 6, "Maximum number of parallel external transfer ambulance jobs including the visible primary ambulance."),
                 EnableIntakeControl = config.Bind("IntakeControl", "EnableIntakeControl", false, "When true, cap today's insurance patient intake after vanilla insurance calculation. Disabled by default."),
@@ -677,7 +676,6 @@ namespace ProjectHospital.AutoLabBalancer
         public static int UnsupportedDiagnosisReferralIncome;
         public static int ManualReferralPayments;
         public static int ManualReferralIncome;
-        public static int ExternalTransferAmbulanceBatches;
     }
 
     [HarmonyPatch]
