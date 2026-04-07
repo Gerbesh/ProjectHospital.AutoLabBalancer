@@ -27,20 +27,14 @@ namespace ProjectHospital.AutoLabBalancer
 
         public static void ApplyDailyCap()
         {
-            if (RuntimeSettings.Config == null || !RuntimeSettings.Config.Enabled.Value)
+            if (RuntimeSettings.Config == null
+                || !RuntimeSettings.Config.Enabled.Value
+                || !RuntimeSettings.Config.EnableIntakeControl.Value)
             {
                 return;
             }
 
             var snapshot = CreateSnapshot();
-            if (!RuntimeSettings.Config.EnableIntakeControl.Value)
-            {
-                Debug("Intake analytics: clinic=" + snapshot.CurrentClinicPatients + "/" + snapshot.ClinicCapacity
-                    + ", ambulance=" + snapshot.CurrentAmbulancePatients + "/" + snapshot.AmbulanceCapacity
-                    + ", outpatientDoctors=" + snapshot.OutpatientDoctors);
-                return;
-            }
-
             var clinicTarget = ClampTarget(snapshot.CurrentClinicPatients, snapshot.ClinicCapacity);
             var ambulanceTarget = ClampTarget(snapshot.CurrentAmbulancePatients, snapshot.AmbulanceCapacity);
             if (clinicTarget < snapshot.CurrentClinicPatients)
@@ -227,22 +221,4 @@ namespace ProjectHospital.AutoLabBalancer
         }
     }
 
-    [HarmonyPatch(typeof(Lopital.InsuranceManager), "CalculatePatientCounts")]
-    internal static class IntakeControlCalculatePatientCountsPatch
-    {
-        private static void Postfix()
-        {
-            try
-            {
-                IntakeControlService.ApplyDailyCap();
-            }
-            catch (Exception ex)
-            {
-                if (RuntimeSettings.Logger != null)
-                {
-                    RuntimeSettings.Logger.LogError(ModText.Log("Intake control failed: ") + ex);
-                }
-            }
-        }
-    }
 }

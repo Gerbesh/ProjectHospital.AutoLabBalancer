@@ -41,4 +41,9 @@
     </Reference>
   </ItemGroup>
 
+  <Target Name="CopyPluginToDist" AfterTargets="Build">
+    <MakeDir Directories="$(MSBuildProjectDirectory)\..\dist" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(MSBuildProjectDirectory)\..\dist" />
+  </Target>
+
 </Project>
