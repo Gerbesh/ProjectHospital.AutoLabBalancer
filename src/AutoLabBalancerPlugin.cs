@@ -16,7 +16,7 @@ namespace ProjectHospital.AutoLabBalancer
     {
         public const string PluginGuid = "local.projecthospital.autolabbalancer";
         public const string PluginName = "Project Hospital Productivity Tweaks";
-        public const string PluginVersion = "0.9.1";
+        public const string PluginVersion = "0.9.2";
 
         private AutoLabBalancerConfig _config;
         private Harmony _harmony;
@@ -105,6 +105,13 @@ namespace ProjectHospital.AutoLabBalancer
                 + ModText.T("AnalyticsTransportWaits") + snapshot.WaitingForExamTransport
                 + "/" + snapshot.WaitingForTreatmentTransport
                 + "/" + snapshot.OutsideRoomChainedPatients
+                + ModText.T("AnalyticsRadiology") + snapshot.RadiologyPlannedExaminations
+                + "/" + snapshot.RadiologyCtExaminations
+                + "/" + snapshot.RadiologyMriExaminations
+                + "/" + snapshot.RadiologyXrayExaminations
+                + "/" + snapshot.RadiologyUsgExaminations
+                + "/" + snapshot.RadiologyAngioExaminations
+                + "/" + snapshot.RadiologyOtherExaminations
                 + ModText.T("AnalyticsFreeStaff") + snapshot.FreeDoctors
                 + "/" + snapshot.FreeNurses
                 + "/" + snapshot.FreeJanitors
@@ -287,6 +294,14 @@ namespace ProjectHospital.AutoLabBalancer
                 GUILayout.EndVertical();
                 GUILayout.EndHorizontal();
                 GUILayout.Label(ModText.T("NurseCleanupJobs") + ProductivityTweaksService.NurseCleanupJobCount);
+                GUILayout.Label(ModText.F("RadiologyQueueLine",
+                    _overlaySnapshot.RadiologyPlannedExaminations,
+                    _overlaySnapshot.RadiologyCtExaminations,
+                    _overlaySnapshot.RadiologyMriExaminations,
+                    _overlaySnapshot.RadiologyXrayExaminations,
+                    _overlaySnapshot.RadiologyUsgExaminations,
+                    _overlaySnapshot.RadiologyAngioExaminations,
+                    _overlaySnapshot.RadiologyOtherExaminations));
             }
 
             GUILayout.Label(ModText.F("SurgeryLine", _overlaySnapshot.PlannedSurgeries, _overlaySnapshot.CriticalSurgeryPatients, _overlaySnapshot.WaitingSurgeryDepartments));

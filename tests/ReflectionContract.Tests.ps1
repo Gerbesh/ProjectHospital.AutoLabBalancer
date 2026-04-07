@@ -319,6 +319,17 @@ if (Test-Path -LiteralPath $enUiXml) {
     }
 }
 
+$examinationsXml = Join-Path $DatabaseDir "Procedures\Examinations.xml"
+Write-Host "Section: Radiology queue XML"
+Assert-True (Test-Path -LiteralPath $examinationsXml) "Examinations.xml exists at $examinationsXml"
+if (Test-Path -LiteralPath $examinationsXml) {
+    [xml]$xml = Get-Content -LiteralPath $examinationsXml
+    $examinationIds = @($xml.Database.GameDBExamination | ForEach-Object { $_.ID })
+    foreach ($requiredId in @("EXM_CT", "EXM_CT_ENTEROGRAPHY", "EXM_MRI", "EXM_USG", "EXM_FAST", "EXM_ANGIOGRAPHY", "EXM_X_RAY_BACK", "EXM_X_RAY_HEAD", "EXM_X_RAY_LOWER_LIMB", "EXM_X_RAY_TORSO", "EXM_X_RAY_UPPER_LIMB")) {
+        Assert-True ($examinationIds -contains $requiredId) "Radiology examination exists: $requiredId"
+    }
+}
+
 Write-Host "Section: Summary"
 if ($script:Failures.Count -gt 0) {
     Write-Host ""

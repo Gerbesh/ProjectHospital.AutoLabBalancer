@@ -34,6 +34,13 @@ namespace ProjectHospital.AutoLabBalancer
         public int WaitingForExamTransport;
         public int WaitingForTreatmentTransport;
         public int OutsideRoomChainedPatients;
+        public int RadiologyPlannedExaminations;
+        public int RadiologyCtExaminations;
+        public int RadiologyMriExaminations;
+        public int RadiologyXrayExaminations;
+        public int RadiologyUsgExaminations;
+        public int RadiologyAngioExaminations;
+        public int RadiologyOtherExaminations;
         public string SurgeryReadinessDetails;
     }
 
@@ -146,6 +153,8 @@ namespace ProjectHospital.AutoLabBalancer
                         snapshot.PlannedSurgeries++;
                         AddSurgeryReadinessDetails(hospital, character, snapshot);
                     }
+
+                    CountRadiologyExaminations(character, snapshot);
 
                     if (ReflectionHelpers.InvokeBool(patient, "HasCriticalSurgeryPlanned"))
                     {
@@ -428,6 +437,84 @@ namespace ProjectHospital.AutoLabBalancer
             return planned != null && planned.Count > 0;
         }
 
+        private static void CountRadiologyExaminations(object character, BottleneckSnapshot snapshot)
+        {
+            var procedureComponent = ReflectionHelpers.GetComponentByTypeName(character, "Lopital.ProcedureComponent");
+            var state = ReflectionHelpers.GetField(procedureComponent, "m_state");
+            var queue = ReflectionHelpers.GetField(state, "m_procedureQueue");
+            foreach (var plannedState in ReflectionHelpers.GetEnumerableField(queue, "m_plannedExaminationStates"))
+            {
+                var examination = ReflectionHelpers.ResolvePointer(ReflectionHelpers.GetField(plannedState, "m_examination")) as GameDBExamination;
+                var type = GetRadiologyExaminationType(examination);
+                if (type == RadiologyExaminationType.None)
+                {
+                    continue;
+                }
+
+                snapshot.RadiologyPlannedExaminations++;
+                if (type == RadiologyExaminationType.Ct)
+                {
+                    snapshot.RadiologyCtExaminations++;
+                }
+                else if (type == RadiologyExaminationType.Mri)
+                {
+                    snapshot.RadiologyMriExaminations++;
+                }
+                else if (type == RadiologyExaminationType.Xray)
+                {
+                    snapshot.RadiologyXrayExaminations++;
+                }
+                else if (type == RadiologyExaminationType.Usg)
+                {
+                    snapshot.RadiologyUsgExaminations++;
+                }
+                else if (type == RadiologyExaminationType.Angio)
+                {
+                    snapshot.RadiologyAngioExaminations++;
+                }
+                else
+                {
+                    snapshot.RadiologyOtherExaminations++;
+                }
+            }
+        }
+
+        private static RadiologyExaminationType GetRadiologyExaminationType(GameDBExamination examination)
+        {
+            var id = GetDatabaseId(examination);
+            if (string.IsNullOrEmpty(id))
+            {
+                return RadiologyExaminationType.None;
+            }
+
+            if (id.StartsWith("EXM_CT", StringComparison.OrdinalIgnoreCase))
+            {
+                return RadiologyExaminationType.Ct;
+            }
+
+            if (id.StartsWith("EXM_MRI", StringComparison.OrdinalIgnoreCase))
+            {
+                return RadiologyExaminationType.Mri;
+            }
+
+            if (id.IndexOf("X_RAY", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return RadiologyExaminationType.Xray;
+            }
+
+            if (id == "EXM_USG" || id == "EXM_FAST" || id.IndexOf("USG", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return RadiologyExaminationType.Usg;
+            }
+
+            if (id.IndexOf("ANGIO", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return RadiologyExaminationType.Angio;
+            }
+
+            return RadiologyExaminationType.None;
+        }
+
         private static void CountHospitalizationStatus(object character, BottleneckSnapshot snapshot)
         {
             var hospitalization = ReflectionHelpers.GetComponentByTypeName(character, "Lopital.HospitalizationComponent");
@@ -498,6 +585,17 @@ namespace ProjectHospital.AutoLabBalancer
             {
                 Role = role;
             }
+        }
+
+        private enum RadiologyExaminationType
+        {
+            None,
+            Ct,
+            Mri,
+            Xray,
+            Usg,
+            Angio,
+            Other
         }
     }
 }
