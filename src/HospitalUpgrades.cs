@@ -392,7 +392,7 @@ namespace ProjectHospital.AutoLabBalancer
             rect.anchorMin = new Vector2(0f, 0f);
             rect.anchorMax = new Vector2(1f, 1f);
             rect.pivot = new Vector2(0.5f, 0.5f);
-            rect.offsetMin = new Vector2(42f, 42f);
+            rect.offsetMin = new Vector2(42f, 118f);
             rect.offsetMax = new Vector2(-42f, -178f);
 
             var image = _panel.AddComponent<Image>();
@@ -422,8 +422,8 @@ namespace ProjectHospital.AutoLabBalancer
             viewport.transform.SetParent(_panel.transform, false);
             var viewportRect = viewport.AddComponent<RectTransform>();
             var viewportElement = viewport.AddComponent<LayoutElement>();
-            viewportElement.minHeight = 320f;
-            viewportElement.preferredHeight = 560f;
+            viewportElement.minHeight = 220f;
+            viewportElement.preferredHeight = 420f;
             viewportElement.flexibleHeight = 1f;
             var viewportImage = viewport.AddComponent<Image>();
             viewportImage.color = new Color(1f, 1f, 1f, 0.18f);
@@ -490,7 +490,7 @@ namespace ProjectHospital.AutoLabBalancer
             rowLayout.childControlHeight = true;
             rowLayout.childForceExpandWidth = false;
             rowLayout.childForceExpandHeight = false;
-            row.AddComponent<LayoutElement>().preferredHeight = 78f;
+            row.AddComponent<LayoutElement>().preferredHeight = 68f;
 
             var left = new GameObject("Left");
             left.transform.SetParent(row.transform, false);
@@ -503,8 +503,8 @@ namespace ProjectHospital.AutoLabBalancer
             var leftElement = left.AddComponent<LayoutElement>();
             leftElement.flexibleWidth = 1f;
             leftElement.minWidth = 210f;
-            CreateLayoutText(left.transform, ModText.T(definition.TitleKey), 17, FontStyle.Bold, 24f);
-            CreateLayoutText(left.transform, ModText.F("UpgradeEffect", definition.Effect), 12, FontStyle.Normal, 40f);
+            CreateLayoutText(left.transform, ModText.T(definition.TitleKey), 16, FontStyle.Bold, 22f);
+            CreateLayoutText(left.transform, ModText.F("UpgradeEffect", definition.Effect), 11, FontStyle.Normal, 34f);
 
             var right = new GameObject("Right");
             right.transform.SetParent(row.transform, false);
@@ -518,8 +518,8 @@ namespace ProjectHospital.AutoLabBalancer
             rightElement.minWidth = 122f;
             rightElement.preferredWidth = 122f;
             rightElement.flexibleWidth = 0f;
-            _levelTexts.Add(CreateLayoutText(right.transform, string.Empty, 14, FontStyle.Normal, 20f));
-            _costTexts.Add(CreateLayoutText(right.transform, string.Empty, 12, FontStyle.Normal, 20f));
+            _levelTexts.Add(CreateLayoutText(right.transform, string.Empty, 13, FontStyle.Normal, 18f));
+            _costTexts.Add(CreateLayoutText(right.transform, string.Empty, 11, FontStyle.Normal, 18f));
 
             var button = CreateButton(right.transform, ModText.T("UpgradeBuy"), new Vector2(70f, 32f));
             var tooltip = button.gameObject.AddComponent<HospitalUpgradeTooltip>();
