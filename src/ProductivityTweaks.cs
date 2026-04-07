@@ -770,29 +770,56 @@ namespace ProjectHospital.AutoLabBalancer
         private static object FindDirtyTile(object room, int floorIndex)
         {
             var map = GetMapScriptInterface();
-            var method = map == null ? null : AccessTools.Method(map.GetType(), "FindClosestDirtyTileInARoom");
-            if (method != null)
+            if (map == null || room == null)
             {
-                var center = ReflectionHelpers.GetField(room, "m_center");
-                var toVector2i = center == null ? null : AccessTools.Method(center.GetType(), "ToVector2i");
-                var from = toVector2i == null ? null : toVector2i.Invoke(center, null);
-                if (from != null)
+                return null;
+            }
+
+            var vectorType = AccessTools.TypeByName("GLib.Vector2i");
+            var roomType = AccessTools.TypeByName("Lopital.Room");
+            var method = vectorType == null || roomType == null
+                ? null
+                : AccessTools.Method(map.GetType(), "FindClosestDirtyTileInARoom", new[] { roomType, vectorType });
+
+            var center = ReflectionHelpers.GetField(room, "m_center");
+            var toVector2i = center == null ? null : AccessTools.Method(center.GetType(), "ToVector2i");
+            var from = toVector2i == null ? null : InvokeSafe(toVector2i, center, null);
+            if (method != null && from != null)
+            {
+                var tile = InvokeSafe(method, map, new[] { room, from });
+                if (IsValidVector2(tile))
                 {
-                    return method.Invoke(map, new[] { room, from });
+                    return tile;
                 }
             }
 
-            method = map == null ? null : AccessTools.Method(map.GetType(), "FindFirstDirtyTileZigZag");
-            return method == null ? null : method.Invoke(map, new[] { room });
+            method = roomType == null ? null : AccessTools.Method(map.GetType(), "FindFirstDirtyTileZigZag", new[] { roomType });
+            return method == null ? null : InvokeSafe(method, map, new[] { room });
         }
 
         private static void CleanTile(object tile, int floorIndex)
         {
             var map = GetMapScriptInterface();
-            var method = map == null ? null : AccessTools.Method(map.GetType(), "CleanTile");
+            var vectorType = AccessTools.TypeByName("GLib.Vector2i");
+            var method = map == null || vectorType == null
+                ? null
+                : AccessTools.Method(map.GetType(), "CleanTile", new[] { vectorType, typeof(int) });
             if (method != null)
             {
-                method.Invoke(map, new[] { tile, (object)floorIndex });
+                InvokeSafe(method, map, new[] { tile, (object)floorIndex });
+            }
+        }
+
+        private static object InvokeSafe(MethodInfo method, object instance, object[] args)
+        {
+            try
+            {
+                return method == null ? null : method.Invoke(instance, args);
+            }
+            catch (Exception ex)
+            {
+                Debug("Skipped reflection call " + (method == null ? "<null>" : method.Name) + ": " + ex.GetType().Name + " " + ex.Message);
+                return null;
             }
         }
 
