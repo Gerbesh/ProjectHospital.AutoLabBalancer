@@ -153,6 +153,9 @@ namespace ProjectHospital.AutoLabBalancer
         public long ReservationBrokerMisses;
         public long ReservationBrokerStores;
         public long DispatcherRecommendations;
+        public long DispatcherApplyChecks;
+        public long DispatcherApplyAllows;
+        public long DispatcherApplySkips;
     }
 
     internal static class SchedulingEngineService
@@ -173,6 +176,9 @@ namespace ProjectHospital.AutoLabBalancer
         private static long _outpatientGatingSkips;
         private static long _doctorSearchGatingChecks;
         private static long _doctorSearchGatingSkips;
+        private static long _dispatcherApplyChecks;
+        private static long _dispatcherApplyAllows;
+        private static long _dispatcherApplySkips;
 
         public static SchedulingSnapshot Snapshot
         {
@@ -251,6 +257,49 @@ namespace ProjectHospital.AutoLabBalancer
             return TryGetDepartmentBoard(GetPatientDepartment(patient), out board);
         }
 
+        public static bool TryGetStaffRecommendation(object staffOrBehavior, string role, out SchedulingDispatchRecommendation recommendation)
+        {
+            recommendation = null;
+            if (!Enabled || staffOrBehavior == null || string.IsNullOrEmpty(role))
+            {
+                return false;
+            }
+
+            var staff = ReflectionHelpers.GetField(staffOrBehavior, "m_entity") ?? staffOrBehavior;
+            var department = GetEmployeeDepartment(staff);
+            SchedulingDepartmentBoard board;
+            if (!TryGetDepartmentBoard(department, out board))
+            {
+                return false;
+            }
+
+            for (var i = 0; i < board.DispatchRecommendations.Count; i++)
+            {
+                var candidate = board.DispatchRecommendations[i];
+                if (ReferenceEquals(candidate.Staff, staff)
+                    && string.Equals(candidate.StaffRole, role, StringComparison.OrdinalIgnoreCase))
+                {
+                    recommendation = candidate;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        public static void RecordDispatcherApply(bool allowed)
+        {
+            Interlocked.Increment(ref _dispatcherApplyChecks);
+            if (allowed)
+            {
+                Interlocked.Increment(ref _dispatcherApplyAllows);
+            }
+            else
+            {
+                Interlocked.Increment(ref _dispatcherApplySkips);
+            }
+        }
+
         public static void RecordNurseGating(bool skipped)
         {
             Interlocked.Increment(ref _nurseGatingChecks);
@@ -300,7 +349,10 @@ namespace ProjectHospital.AutoLabBalancer
                     ReservationBrokerHits = broker.Hits,
                     ReservationBrokerMisses = broker.Misses,
                     ReservationBrokerStores = broker.Stores,
-                    DispatcherRecommendations = _snapshot == null ? 0 : _snapshot.DispatchRecommendations
+                    DispatcherRecommendations = _snapshot == null ? 0 : _snapshot.DispatchRecommendations,
+                    DispatcherApplyChecks = Interlocked.Read(ref _dispatcherApplyChecks),
+                    DispatcherApplyAllows = Interlocked.Read(ref _dispatcherApplyAllows),
+                    DispatcherApplySkips = Interlocked.Read(ref _dispatcherApplySkips)
                 };
             }
         }
@@ -321,6 +373,9 @@ namespace ProjectHospital.AutoLabBalancer
                 Interlocked.Exchange(ref _outpatientGatingSkips, 0);
                 Interlocked.Exchange(ref _doctorSearchGatingChecks, 0);
                 Interlocked.Exchange(ref _doctorSearchGatingSkips, 0);
+                Interlocked.Exchange(ref _dispatcherApplyChecks, 0);
+                Interlocked.Exchange(ref _dispatcherApplyAllows, 0);
+                Interlocked.Exchange(ref _dispatcherApplySkips, 0);
                 ReservationBrokerService.ResetCounters();
             }
         }

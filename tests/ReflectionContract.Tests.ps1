@@ -265,6 +265,7 @@ Require-Method "Lopital.BehaviorNurse" "Update" @("System.Single") | Out-Null
 Require-Method "Lopital.BehaviorNurse" "UpdateStateIdle" @("System.Single") | Out-Null
 Require-Method "Lopital.BehaviorJanitor" "Update" @("System.Single") | Out-Null
 Require-Method "Lopital.BehaviorLabSpecialist" "Update" @("System.Single") | Out-Null
+Require-Method "Lopital.BehaviorLabSpecialist" "UpdateStateIdle" @("System.Single") | Out-Null
 Require-Method "Lopital.ProcedureScriptTreatmentSurgery" "ScriptUpdate" @("System.Single") | Out-Null
 Require-Method "Lopital.ProcedureScriptExaminationRadiology" "ScriptUpdate" @("System.Single") | Out-Null
 Require-Method "Lopital.ProcedureScriptExaminationStatLab" "ScriptUpdate" @("System.Single") | Out-Null

@@ -16,7 +16,7 @@ namespace ProjectHospital.AutoLabBalancer
     {
         public const string PluginGuid = "local.projecthospital.autolabbalancer";
         public const string PluginName = "Project Hospital Productivity Tweaks";
-        public const string PluginVersion = "0.15.2";
+        public const string PluginVersion = "0.16.0";
 
         private AutoLabBalancerConfig _config;
         private Harmony _harmony;
@@ -253,6 +253,7 @@ namespace ProjectHospital.AutoLabBalancer
             DrawToggle(_config.EnablePerformanceOptimizations, ModText.T("EnablePerformanceOptimizations"));
             DrawToggle(_config.EnableSchedulingEngine, ModText.T("EnableSchedulingEngine"));
             DrawToggle(_config.EnableSchedulingEngineGating, ModText.T("EnableSchedulingEngineGating"));
+            DrawToggle(_config.EnableSchedulingDispatcherApply, ModText.T("EnableSchedulingDispatcherApply"));
             DrawToggle(_config.EnableNurseTaskBoard, ModText.T("EnableNurseTaskBoard"));
             DrawToggle(_config.EnableReservationBroker, ModText.T("EnableReservationBroker"));
             GUILayout.Space(8f);
@@ -444,6 +445,10 @@ namespace ProjectHospital.AutoLabBalancer
                     counters.DoctorSearchGatingSkips,
                     counters.DoctorSearchGatingChecks));
                 GUILayout.Label(ModText.F("SchedulingDispatcherCountersLine", counters.DispatcherRecommendations));
+                GUILayout.Label(ModText.F("SchedulingDispatcherApplyCountersLine",
+                    counters.DispatcherApplyAllows,
+                    counters.DispatcherApplySkips,
+                    counters.DispatcherApplyChecks));
                 GUILayout.Label(ModText.F("ReservationBrokerCountersLine",
                     counters.ReservationBrokerHits,
                     counters.ReservationBrokerMisses,
@@ -529,6 +534,7 @@ namespace ProjectHospital.AutoLabBalancer
         public ConfigEntry<bool> EnablePerformanceOptimizations { get; private set; }
         public ConfigEntry<bool> EnableSchedulingEngine { get; private set; }
         public ConfigEntry<bool> EnableSchedulingEngineGating { get; private set; }
+        public ConfigEntry<bool> EnableSchedulingDispatcherApply { get; private set; }
         public ConfigEntry<float> SchedulingEngineIntervalSeconds { get; private set; }
         public ConfigEntry<float> SchedulingEngineMaxSnapshotAgeSeconds { get; private set; }
         public ConfigEntry<bool> SchedulingEngineDebugLog { get; private set; }
@@ -617,6 +623,7 @@ namespace ProjectHospital.AutoLabBalancer
                 EnablePerformanceOptimizations = config.Bind("PerformanceOptimizations", "EnablePerformanceOptimizations", true, "Enable experimental runtime performance optimizations based on short-lived caches and backoff."),
                 EnableSchedulingEngine = config.Bind("PerformanceOptimizations", "EnableSchedulingEngine", true, "Build a central read-only runtime scheduling index for department task boards."),
                 EnableSchedulingEngineGating = config.Bind("PerformanceOptimizations", "EnableSchedulingEngineGating", true, "Allow the central scheduling index to influence AI backoff/gating. Disable to keep the index read-only for diagnostics."),
+                EnableSchedulingDispatcherApply = config.Bind("PerformanceOptimizations", "EnableSchedulingDispatcherApply", true, "Let dispatcher recommendations decide which idle doctors, nurses, and lab specialists may run vanilla task selection. Non-recommended idle scans are skipped."),
                 SchedulingEngineIntervalSeconds = config.Bind("PerformanceOptimizations", "SchedulingEngineIntervalSeconds", 0.5f, "How often to rebuild the central scheduling index."),
                 SchedulingEngineMaxSnapshotAgeSeconds = config.Bind("PerformanceOptimizations", "SchedulingEngineMaxSnapshotAgeSeconds", 1.5f, "Maximum scheduling snapshot age before optimizations ignore it."),
                 SchedulingEngineDebugLog = config.Bind("PerformanceOptimizations", "SchedulingEngineDebugLog", false, "Write central scheduling index rebuild summaries to the BepInEx log."),

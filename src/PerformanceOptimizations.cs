@@ -344,6 +344,12 @@ namespace ProjectHospital.AutoLabBalancer
                 return false;
             }
 
+            bool dispatcherDecision;
+            if (TryGetDispatcherIdleDecision(nurse, "nurse", out dispatcherDecision))
+            {
+                return !dispatcherDecision;
+            }
+
             if (!IsNurseIdleCandidate(nurse))
             {
                 NurseIdleBackoff.Remove(nurse);
@@ -382,6 +388,18 @@ namespace ProjectHospital.AutoLabBalancer
             }
 
             return ShouldSkipShortBackoff(nurse, NurseIdleBackoff, RuntimeSettings.Config.EnableNurseIdleBackoff.Value);
+        }
+
+        public static bool ShouldSkipDoctorIdle(object doctor)
+        {
+            bool dispatcherDecision;
+            return TryGetDispatcherIdleDecision(doctor, "doctor", out dispatcherDecision) && !dispatcherDecision;
+        }
+
+        public static bool ShouldSkipLabSpecialistIdle(object labSpecialist)
+        {
+            bool dispatcherDecision;
+            return TryGetDispatcherIdleDecision(labSpecialist, "lab", out dispatcherDecision) && !dispatcherDecision;
         }
 
         public static void StoreNurseIdleResult(object nurse)
@@ -485,6 +503,29 @@ namespace ProjectHospital.AutoLabBalancer
             return backoff.TryGetValue(instance, out state) && Time.realtimeSinceStartup < state.NextAt;
         }
 
+        private static bool TryGetDispatcherIdleDecision(object behavior, string role, out bool allowed)
+        {
+            allowed = false;
+            if (!Enabled
+                || RuntimeSettings.Config == null
+                || !RuntimeSettings.Config.EnableSchedulingDispatcherApply.Value
+                || !RuntimeSettings.Config.EnableSchedulingEngineGating.Value
+                || behavior == null)
+            {
+                return false;
+            }
+
+            if (!IsIdleCandidate(behavior))
+            {
+                return false;
+            }
+
+            SchedulingDispatchRecommendation recommendation;
+            allowed = SchedulingEngineService.TryGetStaffRecommendation(behavior, role, out recommendation);
+            SchedulingEngineService.RecordDispatcherApply(allowed);
+            return true;
+        }
+
         private static void SetAdaptiveBackoff(Dictionary<object, BackoffState> backoff, object instance, float baseDelay, float maxDelay)
         {
             if (instance == null)
@@ -519,17 +560,22 @@ namespace ProjectHospital.AutoLabBalancer
 
         private static bool IsNurseIdleCandidate(object nurse)
         {
-            if (!ReflectionHelpers.InvokeBool(nurse, "IsFree") || ReflectionHelpers.InvokeBool(nurse, "GetReserved"))
+            return IsIdleCandidate(nurse);
+        }
+
+        private static bool IsIdleCandidate(object behavior)
+        {
+            if (!ReflectionHelpers.InvokeBool(behavior, "IsFree") || ReflectionHelpers.InvokeBool(behavior, "GetReserved"))
             {
                 return false;
             }
 
-            if (GetPropertyOrField(nurse, "CurrentPatient") != null)
+            if (GetPropertyOrField(behavior, "CurrentPatient") != null)
             {
                 return false;
             }
 
-            var entity = ReflectionHelpers.GetField(nurse, "m_entity");
+            var entity = ReflectionHelpers.GetField(behavior, "m_entity");
             var employee = ReflectionHelpers.GetComponentByTypeName(entity, "Lopital.EmployeeComponent");
             return employee == null || !ReflectionHelpers.InvokeBool(employee, "IsPerformingAProcedure");
         }
@@ -1057,6 +1103,36 @@ namespace ProjectHospital.AutoLabBalancer
         private static void Postfix(object __instance)
         {
             PerformanceOptimizationService.StoreNurseIdleResult(__instance);
+        }
+    }
+
+    [HarmonyPatch]
+    internal static class DoctorIdleDispatcherPatch
+    {
+        private static MethodBase TargetMethod()
+        {
+            var type = AccessTools.TypeByName("Lopital.BehaviorDoctor");
+            return type == null ? null : AccessTools.Method(type, "UpdateStateIdle", new[] { typeof(float) });
+        }
+
+        private static bool Prefix(object __instance)
+        {
+            return !PerformanceOptimizationService.ShouldSkipDoctorIdle(__instance);
+        }
+    }
+
+    [HarmonyPatch]
+    internal static class LabSpecialistIdleDispatcherPatch
+    {
+        private static MethodBase TargetMethod()
+        {
+            var type = AccessTools.TypeByName("Lopital.BehaviorLabSpecialist");
+            return type == null ? null : AccessTools.Method(type, "UpdateStateIdle", new[] { typeof(float) });
+        }
+
+        private static bool Prefix(object __instance)
+        {
+            return !PerformanceOptimizationService.ShouldSkipLabSpecialistIdle(__instance);
         }
     }
 
