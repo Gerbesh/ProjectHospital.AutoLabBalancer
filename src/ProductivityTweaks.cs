@@ -1455,9 +1455,9 @@ namespace ProjectHospital.AutoLabBalancer
             return type == null ? null : AccessTools.Method(type, "SelectNextAction");
         }
 
-        private static bool Prefix(object __instance)
+        private static void Postfix(object __instance)
         {
-            return !ProductivityTweaksService.TrySelectPriorityCleanup(__instance);
+            ProductivityTweaksService.TrySelectPriorityCleanup(__instance);
         }
     }
 
