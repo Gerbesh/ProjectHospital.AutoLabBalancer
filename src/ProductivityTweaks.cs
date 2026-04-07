@@ -1405,9 +1405,9 @@ namespace ProjectHospital.AutoLabBalancer
 
         private static void Prefix(object __instance, ref float deltaTime)
         {
-            if (ProductivityTweaksService.ShouldBoostRunningMovement(__instance))
+            if (deltaTime <= 0.05f && ProductivityTweaksService.ShouldBoostRunningMovement(__instance))
             {
-                deltaTime *= Math.Max(1f, RuntimeSettings.Config.EmergencyRunSpeedMultiplier.Value);
+                deltaTime = Math.Min(0.05f, deltaTime * Math.Max(1f, RuntimeSettings.Config.EmergencyRunSpeedMultiplier.Value));
                 RuntimeCounters.EmergencySpeedBoosts++;
             }
         }
