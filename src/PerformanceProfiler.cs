@@ -149,70 +149,100 @@ namespace ProjectHospital.AutoLabBalancer
     {
         private static IEnumerable<MethodBase> TargetMethods()
         {
-            foreach (var method in new[]
+            var methods = new List<MethodBase>();
+            AddMethod(methods, AccessTools.Method(AccessTools.TypeByName("Lopital.ProcedureManager"), "Update", new[] { typeof(int) }));
+            AddMethod(methods, AccessTools.Method(AccessTools.TypeByName("Lopital.WalkComponent"), "MultiUpdate", new[] { typeof(int), typeof(float) }));
+            AddMethod(methods, AccessTools.Method(AccessTools.TypeByName("Lopital.HospitalizationComponent"), "Update", new[] { typeof(float) }));
+            AddMethod(methods, AccessTools.Method(AccessTools.TypeByName("Lopital.BehaviorDoctor"), "Update", new[] { typeof(float) }));
+            AddMethod(methods, AccessTools.Method(AccessTools.TypeByName("Lopital.BehaviorNurse"), "Update", new[] { typeof(float) }));
+            AddMethod(methods, AccessTools.Method(AccessTools.TypeByName("Lopital.BehaviorJanitor"), "Update", new[] { typeof(float) }));
+            AddMethod(methods, AccessTools.Method(AccessTools.TypeByName("Lopital.BehaviorLabSpecialist"), "Update", new[] { typeof(float) }));
+            AddMethod(methods, AccessTools.Method(typeof(BottleneckOverlayService), "CreateSnapshot", Type.EmptyTypes));
+            AddMethod(methods, AccessTools.Method(typeof(ProductivityTweaksService), "Tick", new[] { typeof(float) }));
+
+            foreach (var typeName in new[]
             {
-                AccessTools.Method(AccessTools.TypeByName("Lopital.ProcedureManager"), "Update", new[] { typeof(int) }),
-                AccessTools.Method(AccessTools.TypeByName("Lopital.WalkComponent"), "MultiUpdate", new[] { typeof(int), typeof(float) }),
-                AccessTools.Method(AccessTools.TypeByName("Lopital.HospitalizationComponent"), "Update", new[] { typeof(float) }),
-                AccessTools.Method(AccessTools.TypeByName("Lopital.BehaviorDoctor"), "Update", new[] { typeof(float) }),
-                AccessTools.Method(AccessTools.TypeByName("Lopital.BehaviorNurse"), "Update", new[] { typeof(float) }),
-                AccessTools.Method(AccessTools.TypeByName("Lopital.BehaviorJanitor"), "Update", new[] { typeof(float) }),
-                AccessTools.Method(AccessTools.TypeByName("Lopital.BehaviorLabSpecialist"), "Update", new[] { typeof(float) }),
-                AccessTools.Method(typeof(BottleneckOverlayService), "CreateSnapshot", Type.EmptyTypes),
-                AccessTools.Method(typeof(ProductivityTweaksService), "Tick", new[] { typeof(float) })
+                "Lopital.BehaviorNurse",
+                "Lopital.BehaviorDoctor",
+                "Lopital.BehaviorJanitor",
+                "Lopital.BehaviorLabSpecialist",
+                "Lopital.BehaviorPatient",
+                "Lopital.HospitalizationComponent",
+                "Lopital.ProcedureComponent",
+                "Lopital.ProcedureManager",
+                "Lopital.ProcedureQueue",
+                "Lopital.ProcedureScene",
+                "Lopital.ProcedureSceneFactory",
+                "Lopital.Department",
+                "Lopital.MapScriptInterface",
+                "Lopital.LabProcedureManager"
             })
             {
-                if (method != null)
-                {
-                    yield return method;
-                }
+                AddDetailedMethods(methods, typeName);
             }
 
-            foreach (var method in GetStateMachineMethods("Lopital.BehaviorNurse"))
-            {
-                yield return method;
-            }
-
-            foreach (var method in GetStateMachineMethods("Lopital.BehaviorDoctor"))
-            {
-                yield return method;
-            }
-
-            foreach (var method in GetStateMachineMethods("Lopital.HospitalizationComponent"))
-            {
-                yield return method;
-            }
-
-            foreach (var method in GetStateMachineMethods("Lopital.ProcedureComponent"))
-            {
-                yield return method;
-            }
+            return methods;
         }
 
-        private static IEnumerable<MethodBase> GetStateMachineMethods(string typeName)
+        private static void AddDetailedMethods(List<MethodBase> methods, string typeName)
         {
             var type = AccessTools.TypeByName(typeName);
             if (type == null)
             {
-                yield break;
+                return;
             }
 
-            foreach (var method in type.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly))
+            foreach (var method in type.GetMethods(BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly))
             {
-                if (method.IsAbstract || method.ContainsGenericParameters)
+                if (ShouldProfileDetailedMethod(method))
                 {
-                    continue;
-                }
-
-                if (method.Name.StartsWith("UpdateState", StringComparison.Ordinal)
-                    || method.Name == "SelectNextAction"
-                    || method.Name == "SelectNextStep"
-                    || method.Name == "IsHospitalizationOver"
-                    || method.Name == "ReleaseFromObservation")
-                {
-                    yield return method;
+                    AddMethod(methods, method);
                 }
             }
+        }
+
+        private static bool ShouldProfileDetailedMethod(MethodInfo method)
+        {
+            if (method == null || method.IsAbstract || method.ContainsGenericParameters || method.IsConstructor)
+            {
+                return false;
+            }
+
+            var name = method.Name;
+            if (name.StartsWith("get_", StringComparison.Ordinal)
+                || name.StartsWith("set_", StringComparison.Ordinal)
+                || name.StartsWith("add_", StringComparison.Ordinal)
+                || name.StartsWith("remove_", StringComparison.Ordinal)
+                || name.StartsWith("DEBUG_", StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            return name.StartsWith("UpdateState", StringComparison.Ordinal)
+                || name.StartsWith("Find", StringComparison.Ordinal)
+                || name.StartsWith("GetClosest", StringComparison.Ordinal)
+                || name.StartsWith("GetRandom", StringComparison.Ordinal)
+                || name.StartsWith("Has", StringComparison.Ordinal)
+                || name.StartsWith("Is", StringComparison.Ordinal)
+                || name.StartsWith("Can", StringComparison.Ordinal)
+                || name.StartsWith("Select", StringComparison.Ordinal)
+                || name.StartsWith("Check", StringComparison.Ordinal)
+                || name.StartsWith("Try", StringComparison.Ordinal)
+                || name.StartsWith("Plan", StringComparison.Ordinal)
+                || name.StartsWith("Reserve", StringComparison.Ordinal)
+                || name.StartsWith("Release", StringComparison.Ordinal)
+                || name.StartsWith("Send", StringComparison.Ordinal)
+                || name.StartsWith("Clean", StringComparison.Ordinal);
+        }
+
+        private static void AddMethod(List<MethodBase> methods, MethodBase method)
+        {
+            if (method == null || methods.Contains(method))
+            {
+                return;
+            }
+
+            methods.Add(method);
         }
 
         private static void Prefix(MethodBase __originalMethod, ref long __state)
@@ -227,8 +257,13 @@ namespace ProjectHospital.AutoLabBalancer
                 return;
             }
 
-            var declaringType = __originalMethod.DeclaringType == null ? "Unknown" : __originalMethod.DeclaringType.Name;
-            PerformanceProfiler.Stop(declaringType + "." + __originalMethod.Name, __state);
+            PerformanceProfiler.Stop(FormatMethodName(__originalMethod), __state);
+        }
+
+        private static string FormatMethodName(MethodBase method)
+        {
+            var declaringType = method.DeclaringType == null ? "Unknown" : method.DeclaringType.Name;
+            return declaringType + "." + method.Name + "(" + method.GetParameters().Length + ")";
         }
     }
 }
