@@ -16,7 +16,7 @@ namespace ProjectHospital.AutoLabBalancer
     {
         public const string PluginGuid = "local.projecthospital.autolabbalancer";
         public const string PluginName = "Project Hospital Auto Lab Balancer";
-        public const string PluginVersion = "0.8.11";
+        public const string PluginVersion = "0.8.12";
 
         private AutoLabBalancerConfig _config;
         private LabSnapshotService _snapshotService;
@@ -325,6 +325,11 @@ namespace ProjectHospital.AutoLabBalancer
             GUILayout.Label("Transport waits: exam " + _overlaySnapshot.WaitingForExamTransport
                 + ", treatment " + _overlaySnapshot.WaitingForTreatmentTransport
                 + ", chained outside room " + _overlaySnapshot.OutsideRoomChainedPatients);
+            if (surgeryOnly)
+            {
+                GUILayout.Label("Note: vanilla surgery tooltip can understate surgery nurses; readiness uses actual RequiredNurseRoles from procedure DB.");
+            }
+
             if (surgeryOnly && !string.IsNullOrEmpty(_overlaySnapshot.SurgeryReadinessDetails))
             {
                 GUILayout.Label("Surgery readiness:");
