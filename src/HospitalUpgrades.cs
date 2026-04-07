@@ -46,8 +46,7 @@ namespace ProjectHospital.AutoLabBalancer
             new HospitalUpgradeDefinition("LifeSupportMonitoring", "UpgradeMonitoring", "x1.15 / x1.35 / x1.60 / x2.00 / x2.50 / x3.00 collapse/death timers", true),
             new HospitalUpgradeDefinition("InsurancePressure", "UpgradeInsurance", "x1.15 / x1.35 / x1.60 / x2.00 / x2.50 / x3.00 insurance payouts", true),
             new HospitalUpgradeDefinition("FinancialGrinder", "UpgradeWages", "x0.90 / x0.80 / x0.70 / x0.60 / x0.45 / x0.33 wages", true),
-            new HospitalUpgradeDefinition("ProcurementCartel", "UpgradeProcurement", "x0.90 / x0.80 / x0.70 / x0.60 / x0.45 / x0.33 build costs", false),
-            new HospitalUpgradeDefinition("MarketingMachine", "UpgradeReputation", "x1.15 / x1.35 / x1.60 / x2.00 / x2.50 / x3.00 reputation gains", false)
+            new HospitalUpgradeDefinition("ProcurementCartel", "UpgradeProcurement", "x0.90 / x0.80 / x0.70 / x0.60 / x0.45 / x0.33 build costs", false)
         };
 
         private static readonly Dictionary<string, ConfigEntry<int>> Levels = new Dictionary<string, ConfigEntry<int>>();
@@ -192,6 +191,57 @@ namespace ProjectHospital.AutoLabBalancer
             }
         }
 
+        public static void ApplyBuildCostReduction(ref int cost)
+        {
+            if (cost <= 0)
+            {
+                return;
+            }
+
+            var multiplier = GetReductionMultiplier("ProcurementCartel");
+            if (multiplier < 0.999f)
+            {
+                cost = Math.Max(1, (int)Math.Round(cost * multiplier));
+            }
+        }
+
+        public static void ApplySalaryReduction(object employee)
+        {
+            var multiplier = GetReductionMultiplier("FinancialGrinder");
+            if (employee == null || multiplier >= 0.999f)
+            {
+                return;
+            }
+
+            var state = ReflectionHelpers.GetField(employee, "m_state");
+            var field = state == null ? null : AccessTools.Field(state.GetType(), "m_salary");
+            if (field == null)
+            {
+                return;
+            }
+
+            var salary = Convert.ToInt32(field.GetValue(state));
+            if (salary > 0)
+            {
+                field.SetValue(state, Math.Max(1, (int)Math.Round(salary * multiplier)));
+            }
+        }
+
+        public static void ApplyLifeSupportTimers(object medicalCondition)
+        {
+            var multiplier = GetForwardMultiplier("LifeSupportMonitoring");
+            if (medicalCondition == null || multiplier <= 1.001f)
+            {
+                return;
+            }
+
+            foreach (var symptom in ReflectionHelpers.GetEnumerableField(medicalCondition, "m_symptoms"))
+            {
+                ScaleFutureTime(symptom, "m_collapseTriggerTimeHours", multiplier);
+                ScaleFutureTime(symptom, "m_deathTriggerTimeHours", multiplier);
+            }
+        }
+
         public static bool TryBuy(HospitalUpgradeDefinition definition, out string message)
         {
             message = null;
@@ -302,6 +352,21 @@ namespace ProjectHospital.AutoLabBalancer
         {
             float value;
             return MovementRemainders.TryGetValue(walkComponent, out value) ? value : 0f;
+        }
+
+        private static void ScaleFutureTime(object instance, string fieldName, float multiplier)
+        {
+            var field = instance == null ? null : AccessTools.Field(instance.GetType(), fieldName);
+            if (field == null)
+            {
+                return;
+            }
+
+            var value = Convert.ToSingle(field.GetValue(instance));
+            if (value > 0f)
+            {
+                field.SetValue(instance, value * multiplier);
+            }
         }
     }
 
@@ -639,6 +704,47 @@ namespace ProjectHospital.AutoLabBalancer
         private static void Prefix(ref int amount, Lopital.PaymentCategory category)
         {
             HospitalUpgradesService.ApplyInsurancePayoutMultiplier(ref amount, category);
+        }
+    }
+
+    [HarmonyPatch(typeof(Lopital.EmployeeComponent), "ComputeSalary")]
+    internal static class HospitalUpgradesSalaryPatch
+    {
+        private static void Postfix(object __instance)
+        {
+            HospitalUpgradesService.ApplySalaryReduction(__instance);
+        }
+    }
+
+    [HarmonyPatch(typeof(Lopital.MedicalCondition), "ResetCollapseTimes")]
+    internal static class HospitalUpgradesLifeSupportPatch
+    {
+        private static void Postfix(object __instance)
+        {
+            HospitalUpgradesService.ApplyLifeSupportTimers(__instance);
+        }
+    }
+
+    [HarmonyPatch]
+    internal static class HospitalUpgradesBuildCostPatch
+    {
+        private static IEnumerable<MethodBase> TargetMethods()
+        {
+            foreach (var typeName in new[] { "GameDBObject", "GameDBCompositeObject", "GameDBDoor", "GameDBFloorType", "GameDBPrefabObject", "GameDBWall" })
+            {
+                var type = AccessTools.TypeByName(typeName);
+                var property = type == null ? null : AccessTools.Property(type, "Cost");
+                var getter = property == null ? null : property.GetGetMethod(true);
+                if (getter != null)
+                {
+                    yield return getter;
+                }
+            }
+        }
+
+        private static void Postfix(ref int __result)
+        {
+            HospitalUpgradesService.ApplyBuildCostReduction(ref __result);
         }
     }
 

@@ -242,6 +242,17 @@ Require-Method "Lopital.ProcedureScriptExaminationStatLab" "ScriptUpdate" @("Sys
 Require-Method "Lopital.ProcedureScriptTreatmentProcedure" "ScriptUpdate" @("System.Single") | Out-Null
 Require-Method "Lopital.Hospital" "Pay" @("System.Int32", "Lopital.PaymentCategory") | Out-Null
 Require-Method "Lopital.Department" "Pay" @("System.Int32", "Lopital.PaymentCategory", "GLib.Entity") | Out-Null
+Require-Method "Lopital.EmployeeComponent" "ComputeSalary" @() | Out-Null
+Require-Field "Lopital.EmployeeComponent" "m_state" | Out-Null
+Require-Field "Lopital.EmployeeComponentPersistentData" "m_salary" | Out-Null
+Require-Method "Lopital.MedicalCondition" "ResetCollapseTimes" @("Lopital.BehaviorPatient") | Out-Null
+Require-Field "Lopital.MedicalCondition" "m_symptoms" | Out-Null
+Require-Field "Lopital.Symptom" "m_collapseTriggerTimeHours" | Out-Null
+Require-Field "Lopital.Symptom" "m_deathTriggerTimeHours" | Out-Null
+Require-Property "GameDBObject" "Cost" "System.Int32" | Out-Null
+Require-Property "GameDBDoor" "Cost" "System.Int32" | Out-Null
+Require-Property "GameDBFloorType" "Cost" "System.Int32" | Out-Null
+Require-Property "GameDBWall" "Cost" "System.Int32" | Out-Null
 Require-Method "Lopital.BehaviorDoctor" "GetSpeedModifier" @() "System.Single" | Out-Null
 Require-Method "Lopital.BehaviorNurse" "GetSpeedModifier" @() "System.Single" | Out-Null
 Require-Method "Lopital.BehaviorPatient" "HasCriticalSurgeryPlanned" @() "System.Boolean" | Out-Null

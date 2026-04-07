@@ -110,8 +110,7 @@ namespace ProjectHospital.AutoLabBalancer
             { "UpgradeMonitoring", "Life Support Monitoring" },
             { "UpgradeInsurance", "Insurance Pressure" },
             { "UpgradeWages", "Financial Grinder" },
-            { "UpgradeProcurement", "Procurement Cartel" },
-            { "UpgradeReputation", "Marketing Machine" }
+            { "UpgradeProcurement", "Procurement Cartel" }
         };
 
         private static readonly Dictionary<string, string> Ru = new Dictionary<string, string>
@@ -218,8 +217,7 @@ namespace ProjectHospital.AutoLabBalancer
             { "UpgradeMonitoring", "Система жизнеобеспечения" },
             { "UpgradeInsurance", "Страховой прессинг" },
             { "UpgradeWages", "Финансовая мясорубка" },
-            { "UpgradeProcurement", "Закупочный картель" },
-            { "UpgradeReputation", "Рекламная машина" }
+            { "UpgradeProcurement", "Закупочный картель" }
         };
 
         private static readonly Dictionary<string, string> RuLogPrefixes = new Dictionary<string, string>
