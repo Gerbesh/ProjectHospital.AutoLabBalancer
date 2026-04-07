@@ -559,14 +559,14 @@ namespace ProjectHospital.AutoLabBalancer
             });
         }
 
-        private static bool Prefix(Entity ignoredUser, Entity ignoredOwner, Vector2i position, Room room, string[] tags, AccessRights accessRights, bool needsToBeFree, DatabaseEntryRef<GameDBRoomType>[] allowedRoomTypes, bool onlyComposite, ref TileObject __result)
+        private static bool Prefix(Entity character, Entity owner, Vector2i position, Room room, string[] tags, AccessRights accessRights, bool allowObjectsWithAttachments, DatabaseEntryRef<GameDBRoomType>[] roomTypes, bool allowedOutsideOfRoom, ref TileObject __result)
         {
-            return !PerformanceOptimizationService.TryGetCachedObjectSearch(Key, new object[] { ignoredUser, ignoredOwner, position, room, tags, accessRights, needsToBeFree, allowedRoomTypes, onlyComposite }, ref __result);
+            return !PerformanceOptimizationService.TryGetCachedObjectSearch(Key, new object[] { character, owner, position, room, tags, accessRights, allowObjectsWithAttachments, roomTypes, allowedOutsideOfRoom }, ref __result);
         }
 
-        private static void Postfix(Entity ignoredUser, Entity ignoredOwner, Vector2i position, Room room, string[] tags, AccessRights accessRights, bool needsToBeFree, DatabaseEntryRef<GameDBRoomType>[] allowedRoomTypes, bool onlyComposite, TileObject __result)
+        private static void Postfix(Entity character, Entity owner, Vector2i position, Room room, string[] tags, AccessRights accessRights, bool allowObjectsWithAttachments, DatabaseEntryRef<GameDBRoomType>[] roomTypes, bool allowedOutsideOfRoom, TileObject __result)
         {
-            PerformanceOptimizationService.StoreObjectSearch(Key, new object[] { ignoredUser, ignoredOwner, position, room, tags, accessRights, needsToBeFree, allowedRoomTypes, onlyComposite }, __result);
+            PerformanceOptimizationService.StoreObjectSearch(Key, new object[] { character, owner, position, room, tags, accessRights, allowObjectsWithAttachments, roomTypes, allowedOutsideOfRoom }, __result);
         }
     }
 
@@ -652,14 +652,14 @@ namespace ProjectHospital.AutoLabBalancer
             });
         }
 
-        private static bool Prefix(Entity ignoredUser, Entity ignoredOwner, Vector2i position, Room room, string tag, AccessRights accessRights, bool needsToBeFree, DatabaseEntryRef<GameDBRoomType>[] allowedRoomTypes, bool onlyComposite, ref TileObject __result)
+        private static bool Prefix(Entity character, Entity owner, Vector2i position, Room room, string tag, AccessRights accessRights, bool allowObjectsWithAttachments, DatabaseEntryRef<GameDBRoomType>[] roomTypes, bool allowedOutsideOfRoom, ref TileObject __result)
         {
-            return !PerformanceOptimizationService.TryGetCachedObjectSearch(Key, new object[] { ignoredUser, ignoredOwner, position, room, tag, accessRights, needsToBeFree, allowedRoomTypes, onlyComposite }, ref __result);
+            return !PerformanceOptimizationService.TryGetCachedObjectSearch(Key, new object[] { character, owner, position, room, tag, accessRights, allowObjectsWithAttachments, roomTypes, allowedOutsideOfRoom }, ref __result);
         }
 
-        private static void Postfix(Entity ignoredUser, Entity ignoredOwner, Vector2i position, Room room, string tag, AccessRights accessRights, bool needsToBeFree, DatabaseEntryRef<GameDBRoomType>[] allowedRoomTypes, bool onlyComposite, TileObject __result)
+        private static void Postfix(Entity character, Entity owner, Vector2i position, Room room, string tag, AccessRights accessRights, bool allowObjectsWithAttachments, DatabaseEntryRef<GameDBRoomType>[] roomTypes, bool allowedOutsideOfRoom, TileObject __result)
         {
-            PerformanceOptimizationService.StoreObjectSearch(Key, new object[] { ignoredUser, ignoredOwner, position, room, tag, accessRights, needsToBeFree, allowedRoomTypes, onlyComposite }, __result);
+            PerformanceOptimizationService.StoreObjectSearch(Key, new object[] { character, owner, position, room, tag, accessRights, allowObjectsWithAttachments, roomTypes, allowedOutsideOfRoom }, __result);
         }
     }
 
