@@ -236,6 +236,12 @@ Require-Field "Lopital.WalkComponent" "m_state" | Out-Null
 Require-Field "Lopital.WalkComponent" "m_floor" | Out-Null
 Require-Field "Lopital.WalkComponent" "m_route" | Out-Null
 Require-Field "Lopital.WalkComponentPersistentData" "m_movementType" | Out-Null
+Require-Method "Lopital.ProcedureScriptTreatmentSurgery" "ScriptUpdate" @("System.Single") | Out-Null
+Require-Method "Lopital.ProcedureScriptExaminationRadiology" "ScriptUpdate" @("System.Single") | Out-Null
+Require-Method "Lopital.ProcedureScriptExaminationStatLab" "ScriptUpdate" @("System.Single") | Out-Null
+Require-Method "Lopital.ProcedureScriptTreatmentProcedure" "ScriptUpdate" @("System.Single") | Out-Null
+Require-Method "Lopital.Hospital" "Pay" @("System.Int32", "Lopital.PaymentCategory") | Out-Null
+Require-Method "Lopital.Department" "Pay" @("System.Int32", "Lopital.PaymentCategory", "GLib.Entity") | Out-Null
 Require-Method "Lopital.BehaviorDoctor" "GetSpeedModifier" @() "System.Single" | Out-Null
 Require-Method "Lopital.BehaviorNurse" "GetSpeedModifier" @() "System.Single" | Out-Null
 Require-Method "Lopital.BehaviorPatient" "HasCriticalSurgeryPlanned" @() "System.Boolean" | Out-Null

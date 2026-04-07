@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using BepInEx.Configuration;
 using HarmonyLib;
 using UnityEngine;
@@ -29,6 +30,9 @@ namespace ProjectHospital.AutoLabBalancer
     internal static class HospitalUpgradesService
     {
         public const int MaxLevel = 6;
+        private static readonly float[] ForwardMultipliers = { 1f, 1.15f, 1.35f, 1.60f, 2.00f, 2.50f, 3.00f };
+        private static readonly float[] ReductionMultipliers = { 1f, 0.90f, 0.80f, 0.70f, 0.60f, 0.45f, 0.33f };
+        private static readonly Dictionary<object, float> MovementRemainders = new Dictionary<object, float>(ReferenceEqualityComparer.Instance);
 
         public static readonly HospitalUpgradeDefinition[] Upgrades =
         {
@@ -47,6 +51,15 @@ namespace ProjectHospital.AutoLabBalancer
         };
 
         private static readonly Dictionary<string, ConfigEntry<int>> Levels = new Dictionary<string, ConfigEntry<int>>();
+        private static readonly Dictionary<string, HospitalUpgradeDefinition> ById = new Dictionary<string, HospitalUpgradeDefinition>();
+
+        static HospitalUpgradesService()
+        {
+            foreach (var upgrade in Upgrades)
+            {
+                ById[upgrade.Id] = upgrade;
+            }
+        }
 
         public static int GetLevel(HospitalUpgradeDefinition definition)
         {
@@ -58,6 +71,125 @@ namespace ProjectHospital.AutoLabBalancer
         {
             var level = GetLevel(definition);
             return level >= MaxLevel ? 0 : GetCost(definition, level);
+        }
+
+        public static float GetForwardMultiplier(string id)
+        {
+            HospitalUpgradeDefinition definition;
+            if (!ById.TryGetValue(id, out definition))
+            {
+                return 1f;
+            }
+
+            return ForwardMultipliers[Mathf.Clamp(GetLevel(definition), 0, MaxLevel)];
+        }
+
+        public static float GetReductionMultiplier(string id)
+        {
+            HospitalUpgradeDefinition definition;
+            if (!ById.TryGetValue(id, out definition))
+            {
+                return 1f;
+            }
+
+            return ReductionMultipliers[Mathf.Clamp(GetLevel(definition), 0, MaxLevel)];
+        }
+
+        public static float GetProcedureScriptMultiplier(object script)
+        {
+            if (script == null)
+            {
+                return 1f;
+            }
+
+            var name = script.GetType().FullName ?? string.Empty;
+            if (name.IndexOf("ProcedureScriptTreatmentSurgery", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return GetForwardMultiplier("SurgeryConveyor");
+            }
+
+            if (name.IndexOf("StatLab", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return GetForwardMultiplier("LabConveyor");
+            }
+
+            if (name.IndexOf("ProcedureScriptExamination", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return GetForwardMultiplier("TurboDiagnostics");
+            }
+
+            if (name.IndexOf("ProcedureScriptTreatment", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return GetForwardMultiplier("TherapyProtocols");
+            }
+
+            if (name.IndexOf("ProcedureScriptControlNurse", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return GetForwardMultiplier("NursingOverdrive");
+            }
+
+            if (name.IndexOf("ProcedureScriptControlDoctor", StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("ProcedureScriptDoctor", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return GetForwardMultiplier("ClinicalOverdrive");
+            }
+
+            return 1f;
+        }
+
+        public static void ApplyRoleMovementExtraSteps(object walkComponent, int updateCount, float deltaTime)
+        {
+            if (walkComponent == null || updateCount <= 0 || deltaTime <= 0f || deltaTime > 0.05f)
+            {
+                return;
+            }
+
+            var multiplier = GetMovementMultiplier(walkComponent);
+            if (multiplier <= 1.001f)
+            {
+                MovementRemainders.Remove(walkComponent);
+                return;
+            }
+
+            var desiredExtraSteps = ((multiplier - 1f) * updateCount) + GetMovementRemainder(walkComponent);
+            var extraSteps = Math.Max(0, (int)Math.Floor(desiredExtraSteps));
+            MovementRemainders[walkComponent] = desiredExtraSteps - extraSteps;
+            if (extraSteps <= 0)
+            {
+                return;
+            }
+
+            var routeField = AccessTools.Field(walkComponent.GetType(), "m_route");
+            var floorField = AccessTools.Field(walkComponent.GetType(), "m_floor");
+            var updateMovement = AccessTools.Method(walkComponent.GetType(), "UpdateMovement");
+            if (routeField == null || floorField == null || updateMovement == null)
+            {
+                return;
+            }
+
+            var floor = floorField.GetValue(walkComponent);
+            for (var i = 0; i < extraSteps && routeField.GetValue(walkComponent) != null; i++)
+            {
+                var result = updateMovement.Invoke(walkComponent, new[] { floor, (object)deltaTime });
+                if (result != null && string.Equals(result.ToString(), "NEXT_SEGMENT", StringComparison.OrdinalIgnoreCase) && routeField.GetValue(walkComponent) != null)
+                {
+                    updateMovement.Invoke(walkComponent, new[] { floor, (object)deltaTime });
+                }
+            }
+        }
+
+        public static void ApplyInsurancePayoutMultiplier(ref int amount, object category)
+        {
+            if (amount <= 0 || category == null || !category.ToString().StartsWith("INSURANCE_", StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            var multiplier = GetForwardMultiplier("InsurancePressure");
+            if (multiplier > 1.001f)
+            {
+                amount = Math.Max(1, (int)Math.Round(amount * multiplier));
+            }
         }
 
         public static bool TryBuy(HospitalUpgradeDefinition definition, out string message)
@@ -132,6 +264,44 @@ namespace ProjectHospital.AutoLabBalancer
             var hospital = Lopital.Hospital.Instance;
             var state = ReflectionHelpers.GetField(hospital, "m_state");
             return ReflectionHelpers.GetField(state, "m_budget");
+        }
+
+        private static float GetMovementMultiplier(object walkComponent)
+        {
+            var entity = ReflectionHelpers.GetField(walkComponent, "m_entity");
+            if (entity == null)
+            {
+                return 1f;
+            }
+
+            var multiplier = 1f;
+            if (ReflectionHelpers.GetComponentByTypeName(entity, "Lopital.BehaviorDoctor") != null)
+            {
+                multiplier = Math.Max(multiplier, GetForwardMultiplier("ClinicalOverdrive"));
+            }
+
+            if (ReflectionHelpers.GetComponentByTypeName(entity, "Lopital.BehaviorNurse") != null)
+            {
+                multiplier = Math.Max(multiplier, GetForwardMultiplier("NursingOverdrive"));
+            }
+
+            if (ReflectionHelpers.GetComponentByTypeName(entity, "Lopital.BehaviorLabSpecialist") != null)
+            {
+                multiplier = Math.Max(multiplier, GetForwardMultiplier("LabConveyor"));
+            }
+
+            if (ReflectionHelpers.GetComponentByTypeName(entity, "Lopital.BehaviorJanitor") != null)
+            {
+                multiplier = Math.Max(multiplier, GetForwardMultiplier("SanitaryBlitz"));
+            }
+
+            return multiplier;
+        }
+
+        private static float GetMovementRemainder(object walkComponent)
+        {
+            float value;
+            return MovementRemainders.TryGetValue(walkComponent, out value) ? value : 0f;
         }
     }
 
@@ -394,6 +564,81 @@ namespace ProjectHospital.AutoLabBalancer
 
         public void OnPointerExit(PointerEventData eventData)
         {
+        }
+    }
+
+    [HarmonyPatch]
+    internal static class HospitalUpgradesProcedureScriptSpeedPatch
+    {
+        private static IEnumerable<MethodBase> TargetMethods()
+        {
+            var baseType = AccessTools.TypeByName("Lopital.ProcedureScript");
+            if (baseType == null)
+            {
+                yield break;
+            }
+
+            foreach (var type in baseType.Assembly.GetTypes())
+            {
+                if (type == null || type.FullName == null || !type.FullName.StartsWith("Lopital.ProcedureScript", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                var method = AccessTools.Method(type, "ScriptUpdate", new[] { typeof(float) });
+                if (method != null && method.DeclaringType == type)
+                {
+                    yield return method;
+                }
+            }
+        }
+
+        private static void Prefix(object __instance, ref float deltaTime)
+        {
+            var multiplier = HospitalUpgradesService.GetProcedureScriptMultiplier(__instance);
+            if (multiplier > 1.001f && deltaTime > 0f && deltaTime <= 0.05f)
+            {
+                deltaTime *= multiplier;
+            }
+        }
+    }
+
+    [HarmonyPatch]
+    internal static class HospitalUpgradesMovementPatch
+    {
+        private static MethodBase TargetMethod()
+        {
+            var walkType = AccessTools.TypeByName("Lopital.WalkComponent");
+            return walkType == null ? null : AccessTools.Method(walkType, "MultiUpdate", new[] { typeof(int), typeof(float) });
+        }
+
+        private static void Postfix(object __instance, int updateCount, float deltaTime)
+        {
+            HospitalUpgradesService.ApplyRoleMovementExtraSteps(__instance, updateCount, deltaTime);
+        }
+    }
+
+    [HarmonyPatch(typeof(Lopital.Hospital), "Pay", new[] { typeof(int), typeof(Lopital.PaymentCategory) })]
+    internal static class HospitalUpgradesHospitalPayPatch
+    {
+        private static void Prefix(ref int amount, Lopital.PaymentCategory category)
+        {
+            HospitalUpgradesService.ApplyInsurancePayoutMultiplier(ref amount, category);
+        }
+    }
+
+    [HarmonyPatch]
+    internal static class HospitalUpgradesDepartmentPayPatch
+    {
+        private static MethodBase TargetMethod()
+        {
+            var entityType = AccessTools.TypeByName("GLib.Entity");
+            return entityType == null ? null : AccessTools.Method(typeof(Lopital.Department), "Pay", new[] { typeof(int), typeof(Lopital.PaymentCategory), entityType });
+        }
+
+        private static void Prefix(ref int amount, Lopital.PaymentCategory category)
+        {
+            HospitalUpgradesService.ApplyInsurancePayoutMultiplier(ref amount, category);
         }
     }
 
