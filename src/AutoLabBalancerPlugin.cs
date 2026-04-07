@@ -16,7 +16,7 @@ namespace ProjectHospital.AutoLabBalancer
     {
         public const string PluginGuid = "local.projecthospital.autolabbalancer";
         public const string PluginName = "Project Hospital Productivity Tweaks";
-        public const string PluginVersion = "0.16.0";
+        public const string PluginVersion = "0.16.1";
 
         private AutoLabBalancerConfig _config;
         private Harmony _harmony;
@@ -840,6 +840,9 @@ namespace ProjectHospital.AutoLabBalancer
 
     internal static class ReflectionHelpers
     {
+        private static readonly Dictionary<string, FieldInfo> FieldCache = new Dictionary<string, FieldInfo>();
+        private static readonly HashSet<string> MissingFieldCache = new HashSet<string>();
+
         public static object GetField(object instance, string fieldName)
         {
             if (instance == null)
@@ -847,8 +850,44 @@ namespace ProjectHospital.AutoLabBalancer
                 return null;
             }
 
-            var field = AccessTools.Field(instance.GetType(), fieldName);
+            var field = FindField(instance.GetType(), fieldName);
             return field == null ? null : field.GetValue(instance);
+        }
+
+        private static FieldInfo FindField(Type type, string fieldName)
+        {
+            if (type == null || string.IsNullOrEmpty(fieldName))
+            {
+                return null;
+            }
+
+            var key = type.FullName + "::" + fieldName;
+            if (MissingFieldCache.Contains(key))
+            {
+                return null;
+            }
+
+            FieldInfo cached;
+            if (FieldCache.TryGetValue(key, out cached))
+            {
+                return cached;
+            }
+
+            var current = type;
+            while (current != null)
+            {
+                var field = current.GetField(fieldName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly);
+                if (field != null)
+                {
+                    FieldCache[key] = field;
+                    return field;
+                }
+
+                current = current.BaseType;
+            }
+
+            MissingFieldCache.Add(key);
+            return null;
         }
 
         public static IEnumerable<object> GetEnumerableField(object instance, string fieldName)
