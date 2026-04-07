@@ -123,6 +123,17 @@ namespace ProjectHospital.AutoLabBalancer
             }
         }
 
+        public static bool TryGetPatientDepartmentBoard(object patient, out SchedulingDepartmentBoard board)
+        {
+            board = null;
+            if (!Enabled || patient == null)
+            {
+                return false;
+            }
+
+            return TryGetDepartmentBoard(GetPatientDepartment(patient), out board);
+        }
+
         private static void Rebuild(float now)
         {
             var start = Stopwatch.GetTimestamp();

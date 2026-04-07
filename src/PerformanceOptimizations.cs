@@ -294,6 +294,14 @@ namespace ProjectHospital.AutoLabBalancer
 
         public static bool ShouldSkipWaitingSitting(object patient)
         {
+            SchedulingDepartmentBoard board;
+            if (SchedulingEngineService.TryGetPatientDepartmentBoard(patient, out board) && (board.FreeDoctors > 0 || board.FreeLabSpecialists > 0))
+            {
+                WaitingSittingBackoff.Remove(patient);
+                PatientDoctorSearchBackoff.Remove(patient);
+                return false;
+            }
+
             return ShouldSkipShortBackoff(patient, WaitingSittingBackoff, RuntimeSettings.Config.EnableOutpatientQueueBackoff.Value);
         }
 
@@ -309,6 +317,14 @@ namespace ProjectHospital.AutoLabBalancer
 
         public static bool ShouldSkipPatientDoctorSearch(object patient)
         {
+            SchedulingDepartmentBoard board;
+            if (SchedulingEngineService.TryGetPatientDepartmentBoard(patient, out board) && (board.FreeDoctors > 0 || board.FreeLabSpecialists > 0))
+            {
+                PatientDoctorSearchBackoff.Remove(patient);
+                WaitingSittingBackoff.Remove(patient);
+                return false;
+            }
+
             return ShouldSkipShortBackoff(patient, PatientDoctorSearchBackoff, RuntimeSettings.Config.EnableOutpatientQueueBackoff.Value);
         }
 
