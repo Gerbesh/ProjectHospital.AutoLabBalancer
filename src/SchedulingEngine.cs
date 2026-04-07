@@ -10,6 +10,8 @@ namespace ProjectHospital.AutoLabBalancer
     {
         public object Department;
         public int Score;
+        public int NurseScore;
+        public int DoctorScore;
         public int CriticalPatients;
         public int WaitingPatients;
         public int PlannedSurgeryPatients;
@@ -22,6 +24,8 @@ namespace ProjectHospital.AutoLabBalancer
         public int FreeNurses;
         public int FreeLabSpecialists;
         public int FreeJanitors;
+        public int NurseDryRunDispatches;
+        public int DoctorDryRunDispatches;
 
         public int TotalTasks
         {
@@ -36,6 +40,25 @@ namespace ProjectHospital.AutoLabBalancer
                     + TransportTasks
                     + CollapseCareTasks;
             }
+        }
+
+        public int NurseTasks
+        {
+            get
+            {
+                return CriticalPatients
+                    + PlannedSurgeryPatients
+                    + HospitalizedScheduledProcedures
+                    + MedicineTasks
+                    + FoodTasks
+                    + TransportTasks
+                    + CollapseCareTasks;
+            }
+        }
+
+        public int DoctorTasks
+        {
+            get { return CriticalPatients + WaitingPatients + PlannedSurgeryPatients; }
         }
     }
 
@@ -53,6 +76,10 @@ namespace ProjectHospital.AutoLabBalancer
         public int MedicineTasks;
         public int TransportTasks;
         public int WaitingPatientTasks;
+        public int NurseTasks;
+        public int DoctorTasks;
+        public int NurseDryRunDispatches;
+        public int DoctorDryRunDispatches;
         public int Staff;
         public int FreeStaff;
         public int Patients;
@@ -271,6 +298,8 @@ namespace ProjectHospital.AutoLabBalancer
             {
                 board.PlannedSurgeryPatients++;
                 board.Score += 800;
+                board.NurseScore += 350;
+                board.DoctorScore += 450;
             }
 
             var hazard = InvokeObject(patient, "GetWorstKnownHazard");
@@ -278,6 +307,8 @@ namespace ProjectHospital.AutoLabBalancer
             {
                 board.CriticalPatients++;
                 board.Score += 1200;
+                board.NurseScore += 600;
+                board.DoctorScore += 600;
             }
 
             var hospitalization = ReflectionHelpers.GetComponentByTypeName(character, "Lopital.HospitalizationComponent");
@@ -295,6 +326,7 @@ namespace ProjectHospital.AutoLabBalancer
                 {
                     board.WaitingPatients++;
                     board.Score += 60;
+                    board.DoctorScore += 60;
                 }
             }
         }
@@ -305,12 +337,15 @@ namespace ProjectHospital.AutoLabBalancer
             {
                 board.CollapseCareTasks++;
                 board.Score += 1500;
+                board.NurseScore += 1200;
+                board.DoctorScore += 300;
             }
 
             if (ReflectionHelpers.InvokeBool(hospitalization, "HasAnyScheduledProcedures"))
             {
                 board.HospitalizedScheduledProcedures++;
                 board.Score += 250;
+                board.NurseScore += 250;
             }
 
             var state = ReflectionHelpers.GetField(hospitalization, "m_state");
@@ -324,6 +359,7 @@ namespace ProjectHospital.AutoLabBalancer
             {
                 board.MedicineTasks++;
                 board.Score += 160;
+                board.NurseScore += 160;
             }
 
             if (Equals(ReflectionHelpers.GetField(state, "m_lunchReady"), true)
@@ -331,12 +367,14 @@ namespace ProjectHospital.AutoLabBalancer
             {
                 board.FoodTasks++;
                 board.Score += 40;
+                board.NurseScore += 40;
             }
 
             if (Equals(ReflectionHelpers.GetField(state, "m_oustideRoom"), true))
             {
                 board.TransportTasks++;
                 board.Score += 180;
+                board.NurseScore += 180;
             }
         }
 
@@ -353,6 +391,12 @@ namespace ProjectHospital.AutoLabBalancer
                 snapshot.MedicineTasks += board.MedicineTasks;
                 snapshot.TransportTasks += board.TransportTasks;
                 snapshot.WaitingPatientTasks += board.WaitingPatients;
+                snapshot.NurseTasks += board.NurseTasks;
+                snapshot.DoctorTasks += board.DoctorTasks;
+                board.NurseDryRunDispatches = Math.Min(board.FreeNurses, board.NurseTasks);
+                board.DoctorDryRunDispatches = Math.Min(board.FreeDoctors + board.FreeLabSpecialists, board.DoctorTasks);
+                snapshot.NurseDryRunDispatches += board.NurseDryRunDispatches;
+                snapshot.DoctorDryRunDispatches += board.DoctorDryRunDispatches;
                 if (top == null || board.Score > top.Score)
                 {
                     top = board;
@@ -367,7 +411,11 @@ namespace ProjectHospital.AutoLabBalancer
                     + " surgery=" + top.PlannedSurgeryPatients
                     + " meds=" + top.MedicineTasks
                     + " transport=" + top.TransportTasks
-                    + " freeNurses=" + top.FreeNurses;
+                    + " nurseScore=" + top.NurseScore
+                    + " doctorScore=" + top.DoctorScore
+                    + " dryRun(nurse/doctor)=" + top.NurseDryRunDispatches + "/" + top.DoctorDryRunDispatches
+                    + " freeNurses=" + top.FreeNurses
+                    + " freeDoctors=" + top.FreeDoctors;
             }
             else
             {

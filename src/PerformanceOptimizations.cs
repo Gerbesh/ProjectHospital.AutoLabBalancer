@@ -252,7 +252,7 @@ namespace ProjectHospital.AutoLabBalancer
             SchedulingDepartmentBoard schedulingBoard;
             if (SchedulingEngineService.TryGetDepartmentBoard(department, out schedulingBoard))
             {
-                if (schedulingBoard.Score > 0)
+                if (schedulingBoard.NurseScore > 0)
                 {
                     NurseIdleBackoff.Remove(nurse);
                     return false;

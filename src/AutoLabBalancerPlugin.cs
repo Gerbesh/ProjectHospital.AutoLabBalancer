@@ -16,7 +16,7 @@ namespace ProjectHospital.AutoLabBalancer
     {
         public const string PluginGuid = "local.projecthospital.autolabbalancer";
         public const string PluginName = "Project Hospital Productivity Tweaks";
-        public const string PluginVersion = "0.14.2";
+        public const string PluginVersion = "0.14.3";
 
         private AutoLabBalancerConfig _config;
         private Harmony _harmony;
@@ -413,6 +413,10 @@ namespace ProjectHospital.AutoLabBalancer
                         scheduling.SurgeryTasks,
                         scheduling.MedicineTasks,
                         scheduling.TransportTasks,
+                        scheduling.NurseTasks,
+                        scheduling.DoctorTasks,
+                        scheduling.NurseDryRunDispatches,
+                        scheduling.DoctorDryRunDispatches,
                         scheduling.FreeStaff,
                         scheduling.Staff,
                         scheduling.RebuildMs.ToString("0.00")));
