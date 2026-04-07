@@ -1254,7 +1254,7 @@ namespace ProjectHospital.AutoLabBalancer
         {
             if (RuntimeSettings.ProductivityDebug && RuntimeSettings.Logger != null)
             {
-                RuntimeSettings.Logger.LogDebug("[ProductivityTweaks] " + message);
+                RuntimeSettings.Logger.LogDebug("[ProductivityTweaks] " + ModText.Log(message));
             }
         }
 
@@ -1262,7 +1262,7 @@ namespace ProjectHospital.AutoLabBalancer
         {
             if (RuntimeSettings.Logger != null)
             {
-                RuntimeSettings.Logger.LogInfo("[ProductivityTweaks] " + message);
+                RuntimeSettings.Logger.LogInfo("[ProductivityTweaks] " + ModText.Log(message));
             }
         }
 
@@ -1270,7 +1270,7 @@ namespace ProjectHospital.AutoLabBalancer
         {
             if (RuntimeSettings.Logger != null)
             {
-                RuntimeSettings.Logger.LogError("[ProductivityTweaks] " + message);
+                RuntimeSettings.Logger.LogError("[ProductivityTweaks] " + ModText.Log(message));
             }
         }
 

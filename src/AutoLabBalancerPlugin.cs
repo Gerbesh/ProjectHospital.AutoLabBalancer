@@ -16,7 +16,7 @@ namespace ProjectHospital.AutoLabBalancer
     {
         public const string PluginGuid = "local.projecthospital.autolabbalancer";
         public const string PluginName = "Project Hospital Productivity Tweaks";
-        public const string PluginVersion = "0.9.0";
+        public const string PluginVersion = "0.9.1";
 
         private AutoLabBalancerConfig _config;
         private Harmony _harmony;
@@ -30,7 +30,7 @@ namespace ProjectHospital.AutoLabBalancer
 
         private void Awake()
         {
-            Logger.LogInfo(PluginName + " awake started.");
+            Logger.LogInfo(ModText.T("PluginName") + ModText.T("AwakeStarted"));
             _config = AutoLabBalancerConfig.Bind(Config);
             _nextTickAt = 0f;
             RuntimeSettings.Config = _config;
@@ -40,14 +40,14 @@ namespace ProjectHospital.AutoLabBalancer
             {
                 _harmony = new Harmony(PluginGuid);
                 _harmony.PatchAll(typeof(AutoLabBalancerPlugin).Assembly);
-                Logger.LogInfo("Harmony patches installed.");
+                Logger.LogInfo(ModText.T("HarmonyInstalled"));
             }
             catch (Exception ex)
             {
-                Logger.LogError("Harmony patching failed; continuing without perk filtering patches. " + ex);
+                Logger.LogError(ModText.T("HarmonyFailed") + ex);
             }
 
-            Logger.LogInfo(PluginName + " loaded.");
+            Logger.LogInfo(ModText.T("PluginName") + ModText.T("Loaded"));
         }
 
         private void Update()
@@ -76,7 +76,7 @@ namespace ProjectHospital.AutoLabBalancer
             }
             catch (Exception ex)
             {
-                Logger.LogError("Project Hospital mod tick failed: " + ex);
+                Logger.LogError(ModText.T("TickFailed") + ex);
             }
         }
 
@@ -94,20 +94,21 @@ namespace ProjectHospital.AutoLabBalancer
                 return;
             }
 
-            Logger.LogInfo("[SurgeryAnalytics] planned=" + snapshot.PlannedSurgeries
-                + " critical=" + snapshot.CriticalSurgeryPatients
-                + " waitingDepartments=" + snapshot.WaitingSurgeryDepartments
-                + " blockers(room/staff/transport/criticalQueue)=" + snapshot.SurgeryWaitingForRoom
+            Logger.LogInfo(ModText.T("AnalyticsTag") + " "
+                + ModText.T("AnalyticsPlanned") + snapshot.PlannedSurgeries
+                + ModText.T("AnalyticsCritical") + snapshot.CriticalSurgeryPatients
+                + ModText.T("AnalyticsWaitingDepartments") + snapshot.WaitingSurgeryDepartments
+                + ModText.T("AnalyticsBlockers") + snapshot.SurgeryWaitingForRoom
                 + "/" + snapshot.SurgeryWaitingForStaff
                 + "/" + snapshot.SurgeryWaitingForTransport
                 + "/" + snapshot.SurgeryWaitingForCriticalPatients
-                + " transportWaits(exam/treatment/chainedOutside)=" + snapshot.WaitingForExamTransport
+                + ModText.T("AnalyticsTransportWaits") + snapshot.WaitingForExamTransport
                 + "/" + snapshot.WaitingForTreatmentTransport
                 + "/" + snapshot.OutsideRoomChainedPatients
-                + " freeStaff(doctors/nurses/janitors)=" + snapshot.FreeDoctors
+                + ModText.T("AnalyticsFreeStaff") + snapshot.FreeDoctors
                 + "/" + snapshot.FreeNurses
                 + "/" + snapshot.FreeJanitors
-                + (string.IsNullOrEmpty(snapshot.SurgeryReadinessDetails) ? string.Empty : " readiness=" + snapshot.SurgeryReadinessDetails.Replace("\n", " | ")));
+                + (string.IsNullOrEmpty(snapshot.SurgeryReadinessDetails) ? string.Empty : ModText.T("AnalyticsReadiness") + snapshot.SurgeryReadinessDetails.Replace("\n", " | ")));
         }
 
         private void OnDestroy()
@@ -121,7 +122,7 @@ namespace ProjectHospital.AutoLabBalancer
             }
             catch (Exception ex)
             {
-                Logger.LogError("Project Hospital mod cleanup failed: " + ex);
+                Logger.LogError(ModText.T("CleanupFailed") + ex);
             }
         }
 
@@ -132,17 +133,17 @@ namespace ProjectHospital.AutoLabBalancer
                 return;
             }
 
-            _settingsWindow = GUILayout.Window(871234, _settingsWindow, DrawSettingsWindow, "Productivity Tweaks");
+            _settingsWindow = GUILayout.Window(871234, _settingsWindow, DrawSettingsWindow, ModText.T("WindowTitle"));
         }
 
         private void DrawSettingsWindow(int windowId)
         {
-            GUILayout.Label("Settings are saved to the BepInEx config.");
+            GUILayout.Label(ModText.T("SettingsSaved"));
             GUILayout.BeginHorizontal();
-            DrawPageButton(0, "Settings");
-            DrawPageButton(1, "Counters");
-            DrawPageButton(2, "Bottlenecks");
-            DrawPageButton(3, "Surgery");
+            DrawPageButton(0, ModText.T("PageSettings"));
+            DrawPageButton(1, ModText.T("PageCounters"));
+            DrawPageButton(2, ModText.T("PageBottlenecks"));
+            DrawPageButton(3, ModText.T("PageSurgery"));
             GUILayout.EndHorizontal();
 
             GUILayout.Space(8f);
@@ -164,7 +165,7 @@ namespace ProjectHospital.AutoLabBalancer
             }
 
             GUILayout.Space(8f);
-            if (GUILayout.Button("Close"))
+            if (GUILayout.Button(ModText.T("Close")))
             {
                 _showSettings = false;
             }
@@ -183,14 +184,14 @@ namespace ProjectHospital.AutoLabBalancer
 
         private void DrawSettingsPage()
         {
-            var blockNegativePerks = GUILayout.Toggle(_config.PreventNegativeEmployeePerks.Value, "Block negative employee perks on generation");
+            var blockNegativePerks = GUILayout.Toggle(_config.PreventNegativeEmployeePerks.Value, ModText.T("BlockNegativePerks"));
             if (blockNegativePerks != _config.PreventNegativeEmployeePerks.Value)
             {
                 _config.PreventNegativeEmployeePerks.Value = blockNegativePerks;
                 Config.Save();
             }
 
-            var debugLog = GUILayout.Toggle(_config.EnableDebugLog.Value, "Debug log");
+            var debugLog = GUILayout.Toggle(_config.EnableDebugLog.Value, ModText.T("DebugLog"));
             if (debugLog != _config.EnableDebugLog.Value)
             {
                 _config.EnableDebugLog.Value = debugLog;
@@ -198,43 +199,43 @@ namespace ProjectHospital.AutoLabBalancer
             }
 
             GUILayout.Space(8f);
-            GUILayout.Label("Productivity Tweaks");
-            DrawToggle(_config.EnableAggressiveMedicationPlanning, "Plan all available medication for known active symptoms");
-            DrawToggle(_config.EnableFreeTimeSuppression, "Suppress free-time when department is busy");
-            DrawToggle(_config.EnablePostSurgeryCleanupPriority, "Prioritize post-surgery OR cleanup");
-            DrawToggle(_config.EnableStuckReservationCleanup, "Clean stuck reservations watchdog");
-            DrawToggle(_config.EnableFlexibleStretcherPickup, "Flexible stretcher pickup");
-            DrawToggle(_config.EnableChainedHospitalizedExaminations, "Chain hospitalized diagnostics before returning to bed");
-            DrawToggle(_config.EnableTransportReservationTimeout, "Retry stale transport/procedure reservations");
-            DrawToggle(_config.EnableEmergencyRunSpeedBoost, "Emergency run speed boost");
-            DrawToggle(_config.EnableNurseAssistedORCleanup, "Nurse-assisted OR cleanup");
-            DrawToggle(_config.EnableEquipmentReferral, "Refer equipment-blocked patients to another hospital");
-            DrawToggle(_config.EnableManualReferralPayment, "Pay partial fee for manual untreated referrals");
-            DrawToggle(_config.EnableDebugProductivityLog, "Productivity debug log");
-            DrawToggle(_config.EnableBottleneckOverlay, "Show bottleneck overlay diagnostics");
-            DrawToggle(_config.EnableSurgeryAnalyticsLog, "Write surgery bottleneck analytics to BepInEx log");
-            DrawToggle(_config.EnableSurgeryTooltipFix, "Fix vanilla surgery staff tooltip");
+            GUILayout.Label(ModText.T("ProductivityTweaks"));
+            DrawToggle(_config.EnableAggressiveMedicationPlanning, ModText.T("PlanMedication"));
+            DrawToggle(_config.EnableFreeTimeSuppression, ModText.T("SuppressFreeTime"));
+            DrawToggle(_config.EnablePostSurgeryCleanupPriority, ModText.T("PrioritizeOrCleanup"));
+            DrawToggle(_config.EnableStuckReservationCleanup, ModText.T("CleanStuckReservations"));
+            DrawToggle(_config.EnableFlexibleStretcherPickup, ModText.T("FlexibleStretcherPickup"));
+            DrawToggle(_config.EnableChainedHospitalizedExaminations, ModText.T("ChainDiagnostics"));
+            DrawToggle(_config.EnableTransportReservationTimeout, ModText.T("RetryTransportReservations"));
+            DrawToggle(_config.EnableEmergencyRunSpeedBoost, ModText.T("EmergencyRunSpeedBoost"));
+            DrawToggle(_config.EnableNurseAssistedORCleanup, ModText.T("NurseAssistedOrCleanup"));
+            DrawToggle(_config.EnableEquipmentReferral, ModText.T("EquipmentReferral"));
+            DrawToggle(_config.EnableManualReferralPayment, ModText.T("ManualReferralPayment"));
+            DrawToggle(_config.EnableDebugProductivityLog, ModText.T("ProductivityDebugLog"));
+            DrawToggle(_config.EnableBottleneckOverlay, ModText.T("ShowBottleneckOverlay"));
+            DrawToggle(_config.EnableSurgeryAnalyticsLog, ModText.T("SurgeryAnalyticsLog"));
+            DrawToggle(_config.EnableSurgeryTooltipFix, ModText.T("FixSurgeryTooltip"));
         }
 
         private void DrawCountersPage()
         {
-            GUILayout.Label("Counters");
+            GUILayout.Label(ModText.T("PageCounters"));
             GUILayout.BeginHorizontal();
             GUILayout.BeginVertical();
-            GUILayout.Label("Medication auto-added: " + RuntimeCounters.MedicationsAutoPlanned);
-            GUILayout.Label("Free-time suppressed: " + RuntimeCounters.FreeTimeSuppressed);
-            GUILayout.Label("OR cleanup priorities: " + RuntimeCounters.ORCleanupPrioritiesCreated);
-            GUILayout.Label("Nurse OR tiles cleaned: " + RuntimeCounters.NurseORTilesCleaned);
+            GUILayout.Label(ModText.T("MedicationAutoAdded") + RuntimeCounters.MedicationsAutoPlanned);
+            GUILayout.Label(ModText.T("FreeTimeSuppressed") + RuntimeCounters.FreeTimeSuppressed);
+            GUILayout.Label(ModText.T("OrCleanupPriorities") + RuntimeCounters.ORCleanupPrioritiesCreated);
+            GUILayout.Label(ModText.T("NurseOrTilesCleaned") + RuntimeCounters.NurseORTilesCleaned);
             GUILayout.EndVertical();
             GUILayout.BeginVertical();
-            GUILayout.Label("Stuck reservations cleared: " + RuntimeCounters.StuckReservationsCleared);
-            GUILayout.Label("Flexible transport fallbacks: " + RuntimeCounters.FlexibleTransportFallbacks);
-            GUILayout.Label("Transport reservations retried: " + RuntimeCounters.TransportReservationsRetried);
-            GUILayout.Label("Emergency speed boosts: " + RuntimeCounters.EmergencySpeedBoosts);
-            GUILayout.Label("Equipment referrals: " + RuntimeCounters.EquipmentReferrals);
-            GUILayout.Label("Referral income: $" + RuntimeCounters.EquipmentReferralIncome);
-            GUILayout.Label("Manual referral payments: " + RuntimeCounters.ManualReferralPayments);
-            GUILayout.Label("Manual referral income: $" + RuntimeCounters.ManualReferralIncome);
+            GUILayout.Label(ModText.T("StuckReservationsCleared") + RuntimeCounters.StuckReservationsCleared);
+            GUILayout.Label(ModText.T("FlexibleTransportFallbacks") + RuntimeCounters.FlexibleTransportFallbacks);
+            GUILayout.Label(ModText.T("TransportReservationsRetried") + RuntimeCounters.TransportReservationsRetried);
+            GUILayout.Label(ModText.T("EmergencySpeedBoosts") + RuntimeCounters.EmergencySpeedBoosts);
+            GUILayout.Label(ModText.T("EquipmentReferrals") + RuntimeCounters.EquipmentReferrals);
+            GUILayout.Label(ModText.T("ReferralIncome") + RuntimeCounters.EquipmentReferralIncome);
+            GUILayout.Label(ModText.T("ManualReferralPayments") + RuntimeCounters.ManualReferralPayments);
+            GUILayout.Label(ModText.T("ManualReferralIncome") + RuntimeCounters.ManualReferralIncome);
             GUILayout.EndVertical();
             GUILayout.EndHorizontal();
         }
@@ -247,7 +248,7 @@ namespace ProjectHospital.AutoLabBalancer
             }
             else
             {
-                GUILayout.Label("Bottleneck overlay is disabled.");
+                GUILayout.Label(ModText.T("OverlayDisabled"));
             }
         }
 
@@ -260,10 +261,10 @@ namespace ProjectHospital.AutoLabBalancer
             }
 
             GUILayout.Space(8f);
-            GUILayout.Label("Bottlenecks");
+            GUILayout.Label(ModText.T("PageBottlenecks"));
             if (_overlaySnapshot == null || !_overlaySnapshot.Ready)
             {
-                GUILayout.Label("Game state is not ready yet.");
+                GUILayout.Label(ModText.T("GameNotReady"));
                 return;
             }
 
@@ -271,46 +272,39 @@ namespace ProjectHospital.AutoLabBalancer
             {
                 GUILayout.BeginHorizontal();
                 GUILayout.BeginVertical();
-                GUILayout.Label("Patients: " + _overlaySnapshot.Patients);
-                GUILayout.Label("High-risk: " + _overlaySnapshot.HighRiskPatients);
-                GUILayout.Label("Planned meds: " + _overlaySnapshot.PatientsWithPlannedMedication);
-                GUILayout.Label("Idle lab queue: " + _overlaySnapshot.IdleLabProcedures);
-                GUILayout.Label("Departments busy: " + _overlaySnapshot.BusyDepartments + "/" + _overlaySnapshot.Departments);
+                GUILayout.Label(ModText.T("Patients") + _overlaySnapshot.Patients);
+                GUILayout.Label(ModText.T("HighRisk") + _overlaySnapshot.HighRiskPatients);
+                GUILayout.Label(ModText.T("PlannedMeds") + _overlaySnapshot.PatientsWithPlannedMedication);
+                GUILayout.Label(ModText.T("IdleLabQueue") + _overlaySnapshot.IdleLabProcedures);
+                GUILayout.Label(ModText.T("DepartmentsBusy") + _overlaySnapshot.BusyDepartments + "/" + _overlaySnapshot.Departments);
                 GUILayout.EndVertical();
                 GUILayout.BeginVertical();
-                GUILayout.Label("Free doctors: " + _overlaySnapshot.FreeDoctors + "/" + _overlaySnapshot.Doctors);
-                GUILayout.Label("Free nurses: " + _overlaySnapshot.FreeNurses + "/" + _overlaySnapshot.Nurses);
-                GUILayout.Label("Free labs: " + _overlaySnapshot.FreeLabSpecialists + "/" + _overlaySnapshot.LabSpecialists);
-                GUILayout.Label("Free janitors: " + _overlaySnapshot.FreeJanitors + "/" + _overlaySnapshot.Janitors);
-                GUILayout.Label("OR cleanup rooms: " + ProductivityTweaksService.HighPriorityCleanupRoomCount);
+                GUILayout.Label(ModText.T("FreeDoctors") + _overlaySnapshot.FreeDoctors + "/" + _overlaySnapshot.Doctors);
+                GUILayout.Label(ModText.T("FreeNurses") + _overlaySnapshot.FreeNurses + "/" + _overlaySnapshot.Nurses);
+                GUILayout.Label(ModText.T("FreeLabs") + _overlaySnapshot.FreeLabSpecialists + "/" + _overlaySnapshot.LabSpecialists);
+                GUILayout.Label(ModText.T("FreeJanitors") + _overlaySnapshot.FreeJanitors + "/" + _overlaySnapshot.Janitors);
+                GUILayout.Label(ModText.T("OrCleanupRooms") + ProductivityTweaksService.HighPriorityCleanupRoomCount);
                 GUILayout.EndVertical();
                 GUILayout.EndHorizontal();
-                GUILayout.Label("Nurse cleanup jobs: " + ProductivityTweaksService.NurseCleanupJobCount);
+                GUILayout.Label(ModText.T("NurseCleanupJobs") + ProductivityTweaksService.NurseCleanupJobCount);
             }
 
-            GUILayout.Label("Surgery: planned " + _overlaySnapshot.PlannedSurgeries
-                + " / critical " + _overlaySnapshot.CriticalSurgeryPatients
-                + " / waiting departments " + _overlaySnapshot.WaitingSurgeryDepartments);
-            GUILayout.Label("Surgery blockers: room " + _overlaySnapshot.SurgeryWaitingForRoom
-                + ", staff " + _overlaySnapshot.SurgeryWaitingForStaff
-                + ", transport " + _overlaySnapshot.SurgeryWaitingForTransport
-                + ", critical queue " + _overlaySnapshot.SurgeryWaitingForCriticalPatients);
-            GUILayout.Label("Transport waits: exam " + _overlaySnapshot.WaitingForExamTransport
-                + ", treatment " + _overlaySnapshot.WaitingForTreatmentTransport
-                + ", chained outside room " + _overlaySnapshot.OutsideRoomChainedPatients);
+            GUILayout.Label(ModText.F("SurgeryLine", _overlaySnapshot.PlannedSurgeries, _overlaySnapshot.CriticalSurgeryPatients, _overlaySnapshot.WaitingSurgeryDepartments));
+            GUILayout.Label(ModText.F("SurgeryBlockersLine", _overlaySnapshot.SurgeryWaitingForRoom, _overlaySnapshot.SurgeryWaitingForStaff, _overlaySnapshot.SurgeryWaitingForTransport, _overlaySnapshot.SurgeryWaitingForCriticalPatients));
+            GUILayout.Label(ModText.F("TransportWaitsLine", _overlaySnapshot.WaitingForExamTransport, _overlaySnapshot.WaitingForTreatmentTransport, _overlaySnapshot.OutsideRoomChainedPatients));
             if (surgeryOnly)
             {
-                GUILayout.Label("Note: vanilla surgery tooltip can understate surgery nurses; readiness uses actual RequiredNurseRoles from procedure DB.");
+                GUILayout.Label(ModText.T("SurgeryTooltipNote"));
             }
 
             if (surgeryOnly && !string.IsNullOrEmpty(_overlaySnapshot.SurgeryReadinessDetails))
             {
-                GUILayout.Label("Surgery readiness:");
+                GUILayout.Label(ModText.T("SurgeryReadiness"));
                 GUILayout.Label(_overlaySnapshot.SurgeryReadinessDetails);
             }
             if (!string.IsNullOrEmpty(_overlaySnapshot.Warning))
             {
-                GUILayout.Label("Overlay warning: " + _overlaySnapshot.Warning);
+                GUILayout.Label(ModText.T("OverlayWarning") + _overlaySnapshot.Warning);
             }
         }
 
@@ -452,7 +446,7 @@ namespace ProjectHospital.AutoLabBalancer
                 return;
             }
 
-            __result = "2x Surgeon\n1x Anesthesiologist\n2x Surgery nurse";
+            __result = ModText.T("SurgeryTooltipFixed");
         }
     }
 

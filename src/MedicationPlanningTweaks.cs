@@ -42,7 +42,7 @@ namespace ProjectHospital.AutoLabBalancer
                 {
                     if (RuntimeSettings.ProductivityDebug && RuntimeSettings.Logger != null)
                     {
-                        RuntimeSettings.Logger.LogDebug("Aggressive medication planning skipped: patient medication limit reached (" + existingMedicationCount + "/" + patientLimit + ").");
+                        RuntimeSettings.Logger.LogDebug(ModText.Log("Aggressive medication planning skipped: patient medication limit reached (" + existingMedicationCount + "/" + patientLimit + ")."));
                     }
 
                     return;
@@ -88,7 +88,7 @@ namespace ProjectHospital.AutoLabBalancer
                     RuntimeCounters.MedicationsAutoPlanned += added;
                     if (RuntimeSettings.ProductivityDebug && RuntimeSettings.Logger != null)
                     {
-                        RuntimeSettings.Logger.LogInfo("Aggressive medication planning added " + added + " treatment(s) for known active symptoms.");
+                        RuntimeSettings.Logger.LogInfo(ModText.Log("Aggressive medication planning added " + added + " treatment(s) for known active symptoms."));
                     }
                 }
             }
@@ -96,7 +96,7 @@ namespace ProjectHospital.AutoLabBalancer
             {
                 if (RuntimeSettings.Logger != null)
                 {
-                    RuntimeSettings.Logger.LogError("Aggressive medication planning failed: " + ex);
+                    RuntimeSettings.Logger.LogError(ModText.Log("Aggressive medication planning failed: " + ex));
                 }
             }
         }

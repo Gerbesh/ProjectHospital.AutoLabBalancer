@@ -160,6 +160,7 @@ Write-Host "Checking Project Hospital reflection contracts against $assemblyPath
 Write-Host "Section: Plugin UI/localization"
 # Plugin UI/localization
 Require-Method "StringTable" "GetLocalizedText" @("System.String", "System.String[]") "System.String" | Out-Null
+Require-Method "StringTable" "GetCurrentLanguage" @() "System.String" | Out-Null
 
 Write-Host "Section: Read-only bottleneck overlay lab counters"
 # Read-only lab counters used by the bottleneck overlay. The old lab auto-balance and

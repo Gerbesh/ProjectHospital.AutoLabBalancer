@@ -400,7 +400,7 @@ namespace ProjectHospital.AutoLabBalancer
                 && RuntimeSettings.Config.EquipmentReferralDebugLog.Value
                 && RuntimeSettings.Logger != null)
             {
-                RuntimeSettings.Logger.LogInfo(message);
+                RuntimeSettings.Logger.LogInfo(ModText.Log(message));
             }
         }
 
@@ -408,7 +408,7 @@ namespace ProjectHospital.AutoLabBalancer
         {
             if (RuntimeSettings.Logger != null)
             {
-                RuntimeSettings.Logger.LogError(message);
+                RuntimeSettings.Logger.LogError(ModText.Log(message));
             }
         }
     }

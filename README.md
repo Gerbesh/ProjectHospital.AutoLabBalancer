@@ -19,6 +19,7 @@ Probe BepInEx 5 plugin for Project Hospital Unity Mono.
 - The lab auto-balancer and lab order availability override were removed in `0.9.0`; the overlay can still show read-only lab bottleneck counters.
 - The `F8` window shows runtime counters for medication planning, free-time suppression, OR cleanup, stuck reservation cleanup, transport fallback, and emergency speed boosts.
 - The `F8` window is split into pages: settings, counters, bottlenecks, and surgery.
+- The `F8` window and main mod log labels switch to Russian when the game language code is `ru`; English is used as fallback.
 - The surgery page highlights active bottlenecks for planned surgeries: waiting room/staff/transport/critical queue, current transport waits, and per-surgery staff readiness. Duplicate role requirements are counted, so surgeries that require two surgery nurses show `EMPL_ROLE_SURGERY_NURSE 1/2` instead of a misleading single-role summary.
 - The mod can write periodic `[SurgeryAnalytics]` lines to the BepInEx log when `EnableSurgeryAnalyticsLog=true`.
 - Chained hospitalized diagnostics keeps a hospitalized patient near diagnostics when another planned examination is queued, instead of always returning to bed between CT/MRI/etc. It also has a conservative stale reservation retry.
