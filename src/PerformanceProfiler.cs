@@ -164,6 +164,52 @@ namespace ProjectHospital.AutoLabBalancer
                     yield return method;
                 }
             }
+
+            foreach (var method in GetStateMachineMethods("Lopital.BehaviorNurse"))
+            {
+                yield return method;
+            }
+
+            foreach (var method in GetStateMachineMethods("Lopital.BehaviorDoctor"))
+            {
+                yield return method;
+            }
+
+            foreach (var method in GetStateMachineMethods("Lopital.HospitalizationComponent"))
+            {
+                yield return method;
+            }
+
+            foreach (var method in GetStateMachineMethods("Lopital.ProcedureComponent"))
+            {
+                yield return method;
+            }
+        }
+
+        private static IEnumerable<MethodBase> GetStateMachineMethods(string typeName)
+        {
+            var type = AccessTools.TypeByName(typeName);
+            if (type == null)
+            {
+                yield break;
+            }
+
+            foreach (var method in type.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly))
+            {
+                if (method.IsAbstract || method.ContainsGenericParameters)
+                {
+                    continue;
+                }
+
+                if (method.Name.StartsWith("UpdateState", StringComparison.Ordinal)
+                    || method.Name == "SelectNextAction"
+                    || method.Name == "SelectNextStep"
+                    || method.Name == "IsHospitalizationOver"
+                    || method.Name == "ReleaseFromObservation")
+                {
+                    yield return method;
+                }
+            }
         }
 
         private static void Prefix(MethodBase __originalMethod, ref long __state)

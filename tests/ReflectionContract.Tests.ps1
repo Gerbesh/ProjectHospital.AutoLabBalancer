@@ -257,8 +257,12 @@ Require-Field "Lopital.TileObjectPersistentData" "m_floorIndex" | Out-Null
 Write-Host "Section: Performance profiler targets"
 Require-Method "Lopital.ProcedureManager" "Update" @("System.Int32") | Out-Null
 Require-Method "Lopital.HospitalizationComponent" "Update" @("System.Single") | Out-Null
+Require-Method "Lopital.HospitalizationComponent" "SelectNextStep" @("System.Single") "System.Boolean" | Out-Null
+Require-Method "Lopital.HospitalizationComponent" "IsHospitalizationOver" @() "System.Boolean" | Out-Null
 Require-Method "Lopital.BehaviorDoctor" "Update" @("System.Single") | Out-Null
+Require-Method "Lopital.BehaviorDoctor" "UpdateStateIdle" @("System.Single") | Out-Null
 Require-Method "Lopital.BehaviorNurse" "Update" @("System.Single") | Out-Null
+Require-Method "Lopital.BehaviorNurse" "UpdateStateIdle" @("System.Single") | Out-Null
 Require-Method "Lopital.BehaviorJanitor" "Update" @("System.Single") | Out-Null
 Require-Method "Lopital.BehaviorLabSpecialist" "Update" @("System.Single") | Out-Null
 Require-Method "Lopital.ProcedureScriptTreatmentSurgery" "ScriptUpdate" @("System.Single") | Out-Null
