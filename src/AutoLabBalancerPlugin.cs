@@ -16,7 +16,7 @@ namespace ProjectHospital.AutoLabBalancer
     {
         public const string PluginGuid = "local.projecthospital.autolabbalancer";
         public const string PluginName = "Project Hospital Auto Lab Balancer";
-        public const string PluginVersion = "0.8.12";
+        public const string PluginVersion = "0.8.13";
 
         private AutoLabBalancerConfig _config;
         private LabSnapshotService _snapshotService;
@@ -239,6 +239,7 @@ namespace ProjectHospital.AutoLabBalancer
             DrawToggle(_config.EnableDebugProductivityLog, "Productivity debug log");
             DrawToggle(_config.EnableBottleneckOverlay, "Show bottleneck overlay diagnostics");
             DrawToggle(_config.EnableSurgeryAnalyticsLog, "Write surgery bottleneck analytics to BepInEx log");
+            DrawToggle(_config.EnableSurgeryTooltipFix, "Fix vanilla surgery staff tooltip");
         }
 
         private void DrawCountersPage()
@@ -388,6 +389,7 @@ namespace ProjectHospital.AutoLabBalancer
         public ConfigEntry<bool> EnableBottleneckOverlay { get; private set; }
         public ConfigEntry<bool> EnableSurgeryAnalyticsLog { get; private set; }
         public ConfigEntry<float> SurgeryAnalyticsLogIntervalSeconds { get; private set; }
+        public ConfigEntry<bool> EnableSurgeryTooltipFix { get; private set; }
         public ConfigEntry<bool> EnableEquipmentReferral { get; private set; }
         public ConfigEntry<int> EquipmentReferralPaymentPercent { get; private set; }
         public ConfigEntry<bool> EnableManualReferralPayment { get; private set; }
@@ -432,6 +434,7 @@ namespace ProjectHospital.AutoLabBalancer
                 EnableBottleneckOverlay = config.Bind("Overlay", "EnableBottleneckOverlay", true, "Show runtime bottleneck diagnostics in the F8 mod window."),
                 EnableSurgeryAnalyticsLog = config.Bind("Overlay", "EnableSurgeryAnalyticsLog", true, "Periodically write surgery and transport bottleneck counters to the BepInEx log."),
                 SurgeryAnalyticsLogIntervalSeconds = config.Bind("Overlay", "SurgeryAnalyticsLogIntervalSeconds", 30f, "How often to write surgery bottleneck analytics when enabled."),
+                EnableSurgeryTooltipFix = config.Bind("Overlay", "EnableSurgeryTooltipFix", true, "Fix vanilla surgery staff tooltip so it shows two surgery nurses, matching actual procedure requirements."),
                 EnableEquipmentReferral = config.Bind("Referral", "EnableEquipmentReferral", false, "When diagnosis is blocked by missing equipment or room, refer the patient to another hospital instead of counting them as untreated. Outpatients only; hospitalized patients are left to vanilla hospitalization flow."),
                 EquipmentReferralPaymentPercent = config.Bind("Referral", "EquipmentReferralPaymentPercent", 20, "Percent of the patient's expected insurance payment paid for equipment-blocked referrals."),
                 EnableManualReferralPayment = config.Bind("Referral", "EnableManualReferralPayment", true, "Pay a small partial fee when the player manually sends an untreated patient to another hospital."),
@@ -901,6 +904,29 @@ namespace ProjectHospital.AutoLabBalancer
         public static int EquipmentReferralIncome;
         public static int ManualReferralPayments;
         public static int ManualReferralIncome;
+    }
+
+    [HarmonyPatch]
+    internal static class SurgeryStaffTooltipFixPatch
+    {
+        private static MethodBase TargetMethod()
+        {
+            var type = AccessTools.TypeByName("StringTable");
+            return type == null ? null : AccessTools.Method(type, "GetLocalizedText", new[] { typeof(string), typeof(string[]) });
+        }
+
+        private static void Postfix(string stringID, ref string __result)
+        {
+            if (RuntimeSettings.Config == null
+                || !RuntimeSettings.Config.Enabled.Value
+                || !RuntimeSettings.Config.EnableSurgeryTooltipFix.Value
+                || !string.Equals(stringID, "TOOLTIP_SURGERY_STAFF_DETAILS", StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            __result = "2x Surgeon\n1x Anesthesiologist\n2x Surgery nurse";
+        }
     }
 
     [HarmonyPatch]
