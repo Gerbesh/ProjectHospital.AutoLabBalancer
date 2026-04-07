@@ -1392,12 +1392,8 @@ namespace ProjectHospital.AutoLabBalancer
 
         private static void Postfix(object __instance, ref float __result)
         {
-            if (ProductivityTweaksService.IsEmergencyContext(__instance))
-            {
-                var multiplier = Math.Max(1f, RuntimeSettings.Config.EmergencyRunSpeedMultiplier.Value);
-                __result = Math.Max(__result, __result * multiplier);
-                RuntimeCounters.EmergencySpeedBoosts++;
-            }
+            // Do not modify GetSpeedModifier: the game uses it for animation speed,
+            // while running movement uses WalkComponent.UpdateMovement directly.
         }
     }
 
@@ -1418,6 +1414,7 @@ namespace ProjectHospital.AutoLabBalancer
             if (ProductivityTweaksService.ShouldBoostRunningMovement(__instance))
             {
                 deltaTime *= Math.Max(1f, RuntimeSettings.Config.EmergencyRunSpeedMultiplier.Value);
+                RuntimeCounters.EmergencySpeedBoosts++;
             }
         }
     }
