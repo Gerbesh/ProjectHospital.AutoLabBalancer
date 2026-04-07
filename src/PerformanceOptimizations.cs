@@ -29,14 +29,22 @@ namespace ProjectHospital.AutoLabBalancer
         public int Care;
     }
 
+    internal sealed class BackoffState
+    {
+        public float NextAt;
+        public float Delay;
+    }
+
     internal static class PerformanceOptimizationService
     {
         private static readonly Dictionary<string, TimedCacheEntry<TileObject>> ObjectSearchCache = new Dictionary<string, TimedCacheEntry<TileObject>>();
+        private static readonly Dictionary<string, TimedCacheEntry<Entity>> EntitySearchCache = new Dictionary<string, TimedCacheEntry<Entity>>();
         private static readonly Dictionary<string, TimedCacheEntry<ProcedureSceneAvailability>> ReservationFailureCache = new Dictionary<string, TimedCacheEntry<ProcedureSceneAvailability>>();
         private static readonly Dictionary<object, NurseTaskBoardSnapshot> NurseBoards = new Dictionary<object, NurseTaskBoardSnapshot>();
-        private static readonly Dictionary<object, float> SelectNextStepBackoff = new Dictionary<object, float>();
-        private static readonly Dictionary<object, float> NurseIdleBackoff = new Dictionary<object, float>();
-        private static readonly Dictionary<object, float> WaitingSittingBackoff = new Dictionary<object, float>();
+        private static readonly Dictionary<object, BackoffState> SelectNextStepBackoff = new Dictionary<object, BackoffState>();
+        private static readonly Dictionary<object, BackoffState> NurseIdleBackoff = new Dictionary<object, BackoffState>();
+        private static readonly Dictionary<object, BackoffState> WaitingSittingBackoff = new Dictionary<object, BackoffState>();
+        private static readonly Dictionary<object, BackoffState> PatientDoctorSearchBackoff = new Dictionary<object, BackoffState>();
         private static float _nextCleanupAt;
 
         public static bool Enabled
@@ -58,11 +66,13 @@ namespace ProjectHospital.AutoLabBalancer
 
             _nextCleanupAt = now + 5f;
             Prune(ObjectSearchCache, now);
+            Prune(EntitySearchCache, now);
             Prune(ReservationFailureCache, now);
             PruneNurseBoards(now);
             Prune(SelectNextStepBackoff, now);
             Prune(NurseIdleBackoff, now);
             Prune(WaitingSittingBackoff, now);
+            Prune(PatientDoctorSearchBackoff, now);
         }
 
         public static bool TryGetCachedObjectSearch(MethodBase method, object[] args, ref TileObject result)
@@ -111,6 +121,44 @@ namespace ProjectHospital.AutoLabBalancer
             };
         }
 
+        public static bool TryGetCachedEntitySearch(MethodBase method, object[] args, ref Entity result)
+        {
+            if (!Enabled || !RuntimeSettings.Config.EnableDoctorSearchCache.Value)
+            {
+                return false;
+            }
+
+            var key = BuildKey(method, args);
+            TimedCacheEntry<Entity> entry;
+            if (!EntitySearchCache.TryGetValue(key, out entry) || Time.realtimeSinceStartup >= entry.ExpiresAt)
+            {
+                return false;
+            }
+
+            if (!IsValidDoctorEntity(entry.Value, IsFreeDoctorSearch(method, args)))
+            {
+                EntitySearchCache.Remove(key);
+                return false;
+            }
+
+            result = entry.Value;
+            return true;
+        }
+
+        public static void StoreEntitySearch(MethodBase method, object[] args, Entity result)
+        {
+            if (!Enabled || !RuntimeSettings.Config.EnableDoctorSearchCache.Value || !IsValidDoctorEntity(result, IsFreeDoctorSearch(method, args)))
+            {
+                return;
+            }
+
+            EntitySearchCache[BuildKey(method, args)] = new TimedCacheEntry<Entity>
+            {
+                Value = result,
+                ExpiresAt = Time.realtimeSinceStartup + Mathf.Max(0.05f, RuntimeSettings.Config.DoctorSearchCacheTtlSeconds.Value)
+            };
+        }
+
         public static bool ShouldSkipSelectNextStep(object hospitalization, ref bool result)
         {
             if (!Enabled || !RuntimeSettings.Config.EnableSelectNextStepBackoff.Value || hospitalization == null)
@@ -118,8 +166,8 @@ namespace ProjectHospital.AutoLabBalancer
                 return false;
             }
 
-            float nextAt;
-            if (SelectNextStepBackoff.TryGetValue(hospitalization, out nextAt) && Time.realtimeSinceStartup < nextAt)
+            BackoffState state;
+            if (SelectNextStepBackoff.TryGetValue(hospitalization, out state) && Time.realtimeSinceStartup < state.NextAt)
             {
                 result = false;
                 return true;
@@ -141,7 +189,7 @@ namespace ProjectHospital.AutoLabBalancer
                 return;
             }
 
-            SelectNextStepBackoff[hospitalization] = Time.realtimeSinceStartup + Mathf.Max(0.05f, RuntimeSettings.Config.SelectNextStepBackoffSeconds.Value);
+            SetAdaptiveBackoff(SelectNextStepBackoff, hospitalization, RuntimeSettings.Config.SelectNextStepBackoffSeconds.Value, RuntimeSettings.Config.SelectNextStepBackoffMaxSeconds.Value);
         }
 
         public static bool TryGetReservationFailure(MethodBase method, object[] args, ref ProcedureSceneAvailability result)
@@ -224,7 +272,11 @@ namespace ProjectHospital.AutoLabBalancer
             var board = department == null ? null : GetNurseBoard(department);
             if (isFree && !reserved && (board == null || board.Score <= 0))
             {
-                NurseIdleBackoff[nurse] = Time.realtimeSinceStartup + Mathf.Max(0.02f, RuntimeSettings.Config.NurseIdleBackoffSeconds.Value);
+                SetAdaptiveBackoff(NurseIdleBackoff, nurse, RuntimeSettings.Config.NurseIdleBackoffSeconds.Value, RuntimeSettings.Config.NurseIdleBackoffMaxSeconds.Value);
+            }
+            else
+            {
+                NurseIdleBackoff.Remove(nurse);
             }
         }
 
@@ -240,18 +292,72 @@ namespace ProjectHospital.AutoLabBalancer
                 return;
             }
 
-            WaitingSittingBackoff[patient] = Time.realtimeSinceStartup + Mathf.Max(0.02f, RuntimeSettings.Config.OutpatientQueueBackoffSeconds.Value);
+            SetAdaptiveBackoff(WaitingSittingBackoff, patient, RuntimeSettings.Config.OutpatientQueueBackoffSeconds.Value, RuntimeSettings.Config.OutpatientQueueBackoffMaxSeconds.Value);
         }
 
-        private static bool ShouldSkipShortBackoff(object instance, Dictionary<object, float> backoff, bool enabled)
+        public static bool ShouldSkipPatientDoctorSearch(object patient)
+        {
+            return ShouldSkipShortBackoff(patient, PatientDoctorSearchBackoff, RuntimeSettings.Config.EnableOutpatientQueueBackoff.Value);
+        }
+
+        public static void StorePatientDoctorSearchResult(object patient)
+        {
+            if (!Enabled || !RuntimeSettings.Config.EnableOutpatientQueueBackoff.Value || patient == null)
+            {
+                return;
+            }
+
+            if (HasAssignedClinician(patient))
+            {
+                PatientDoctorSearchBackoff.Remove(patient);
+                WaitingSittingBackoff.Remove(patient);
+                return;
+            }
+
+            SetAdaptiveBackoff(PatientDoctorSearchBackoff, patient, RuntimeSettings.Config.OutpatientQueueBackoffSeconds.Value, RuntimeSettings.Config.OutpatientQueueBackoffMaxSeconds.Value);
+        }
+
+        private static bool ShouldSkipShortBackoff(object instance, Dictionary<object, BackoffState> backoff, bool enabled)
         {
             if (!Enabled || !enabled || instance == null)
             {
                 return false;
             }
 
-            float nextAt;
-            return backoff.TryGetValue(instance, out nextAt) && Time.realtimeSinceStartup < nextAt;
+            BackoffState state;
+            return backoff.TryGetValue(instance, out state) && Time.realtimeSinceStartup < state.NextAt;
+        }
+
+        private static void SetAdaptiveBackoff(Dictionary<object, BackoffState> backoff, object instance, float baseDelay, float maxDelay)
+        {
+            if (instance == null)
+            {
+                return;
+            }
+
+            BackoffState state;
+            if (!backoff.TryGetValue(instance, out state))
+            {
+                state = new BackoffState();
+                backoff[instance] = state;
+            }
+
+            var minDelay = Mathf.Max(0.02f, baseDelay);
+            var cap = Mathf.Max(minDelay, maxDelay);
+            state.Delay = state.Delay <= 0f ? minDelay : Mathf.Min(cap, state.Delay * 1.75f);
+            state.NextAt = Time.realtimeSinceStartup + state.Delay;
+        }
+
+        private static bool HasAssignedClinician(object patient)
+        {
+            var state = ReflectionHelpers.GetField(patient, "m_state");
+            if (state == null)
+            {
+                return false;
+            }
+
+            return ReflectionHelpers.ResolvePointer(ReflectionHelpers.GetField(state, "m_doctor")) != null
+                || ReflectionHelpers.ResolvePointer(ReflectionHelpers.GetField(state, "m_labSpecialist")) != null;
         }
 
         private static bool IsNurseIdleCandidate(object nurse)
@@ -425,6 +531,68 @@ namespace ProjectHospital.AutoLabBalancer
             }
         }
 
+        private static bool IsValidDoctorEntity(Entity entity, bool mustBeFree)
+        {
+            if (entity == null)
+            {
+                return false;
+            }
+
+            try
+            {
+                if (!ReflectionHelpers.InvokeBool(entity, "IsValid"))
+                {
+                    return false;
+                }
+
+                if (!mustBeFree)
+                {
+                    return true;
+                }
+
+                var doctor = ReflectionHelpers.GetComponentByTypeName(entity, "Lopital.BehaviorDoctor");
+                if (doctor != null)
+                {
+                    return ReflectionHelpers.InvokeBool(doctor, "IsFree") && !ReflectionHelpers.InvokeBool(doctor, "GetReserved");
+                }
+
+                var labSpecialist = ReflectionHelpers.GetComponentByTypeName(entity, "Lopital.BehaviorLabSpecialist");
+                if (labSpecialist != null)
+                {
+                    return ReflectionHelpers.InvokeBool(labSpecialist, "IsFree") && !ReflectionHelpers.InvokeBool(labSpecialist, "GetReserved");
+                }
+
+                return false;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static bool IsFreeDoctorSearch(MethodBase method, object[] args)
+        {
+            if (method != null && method.Name.IndexOf("Free", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return true;
+            }
+
+            if (args == null)
+            {
+                return false;
+            }
+
+            for (var i = 0; i < args.Length; i++)
+            {
+                if (args[i] is bool && Equals(args[i], true))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         private static string BuildKey(MethodBase method, object[] args)
         {
             return BuildKey(method == null ? "unknown" : method.DeclaringType.FullName + "." + method.Name + "#" + method.GetParameters().Length, args);
@@ -502,12 +670,12 @@ namespace ProjectHospital.AutoLabBalancer
             }
         }
 
-        private static void Prune(Dictionary<object, float> cache, float now)
+        private static void Prune(Dictionary<object, BackoffState> cache, float now)
         {
             var expired = new List<object>();
             foreach (var pair in cache)
             {
-                if (now >= pair.Value)
+                if (now >= pair.Value.NextAt)
                 {
                     expired.Add(pair.Key);
                 }
@@ -752,6 +920,58 @@ namespace ProjectHospital.AutoLabBalancer
         private static void Postfix(object __instance)
         {
             PerformanceOptimizationService.StoreWaitingSittingResult(__instance);
+        }
+    }
+
+    [HarmonyPatch]
+    internal static class PatientDoctorSearchBackoffPatch
+    {
+        private static MethodBase TargetMethod()
+        {
+            var type = AccessTools.TypeByName("Lopital.BehaviorPatient");
+            return type == null ? null : AccessTools.Method(type, "FindDoctorOrLabSpecialist", new[] { typeof(bool) });
+        }
+
+        private static bool Prefix(object __instance)
+        {
+            return !PerformanceOptimizationService.ShouldSkipPatientDoctorSearch(__instance);
+        }
+
+        private static void Postfix(object __instance)
+        {
+            PerformanceOptimizationService.StorePatientDoctorSearchResult(__instance);
+        }
+    }
+
+    [HarmonyPatch]
+    internal static class DoctorSearchCachePatch
+    {
+        private static IEnumerable<MethodBase> TargetMethods()
+        {
+            var type = AccessTools.TypeByName("Lopital.MapScriptInterface");
+            if (type == null)
+            {
+                yield break;
+            }
+
+            foreach (var method in type.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+            {
+                if ((method.Name == "FindClosestDoctorWithQualification" || method.Name == "FindClosestFreeDoctorWithQualification")
+                    && method.ReturnType == typeof(Entity))
+                {
+                    yield return method;
+                }
+            }
+        }
+
+        private static bool Prefix(MethodBase __originalMethod, object[] __args, ref Entity __result)
+        {
+            return !PerformanceOptimizationService.TryGetCachedEntitySearch(__originalMethod, __args, ref __result);
+        }
+
+        private static void Postfix(MethodBase __originalMethod, object[] __args, Entity __result)
+        {
+            PerformanceOptimizationService.StoreEntitySearch(__originalMethod, __args, __result);
         }
     }
 }

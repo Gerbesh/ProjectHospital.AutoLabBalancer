@@ -281,8 +281,13 @@ Require-AnyMethod "Lopital.MapScriptInterface" "FindClosestFreeObjectWithTag" | 
 Require-Method "Lopital.ProcedureComponent" "ReserveExamination" @("GameDBExamination", "GLib.Entity", "Lopital.Department", "Lopital.Room", "Lopital.AccessRights") "Lopital.ProcedureSceneAvailability" | Out-Null
 Require-Method "Lopital.ProcedureComponent" "ReserveProcedure" @("GameDBProcedure", "GLib.Entity", "Lopital.Department", "Lopital.Room", "Lopital.AccessRights", "System.String", "System.Boolean") "Lopital.ProcedureSceneAvailability" | Out-Null
 Require-Method "Lopital.BehaviorPatient" "UpdateStateWaitingSitting" @("System.Single") | Out-Null
+Require-Method "Lopital.BehaviorPatient" "FindDoctorOrLabSpecialist" @("System.Boolean") | Out-Null
+Require-AnyMethod "Lopital.MapScriptInterface" "FindClosestDoctorWithQualification" | Out-Null
+Require-AnyMethod "Lopital.MapScriptInterface" "FindClosestFreeDoctorWithQualification" | Out-Null
 Require-Method "Lopital.BehaviorNurse" "IsFree" @() "System.Boolean" | Out-Null
 Require-Method "Lopital.BehaviorNurse" "GetReserved" @() "System.Boolean" | Out-Null
+Require-Method "Lopital.BehaviorDoctor" "IsFree" @() "System.Boolean" | Out-Null
+Require-Method "Lopital.BehaviorDoctor" "GetReserved" @() "System.Boolean" | Out-Null
 Require-Method "Lopital.EmployeeComponent" "ComputeSalary" @() | Out-Null
 Require-Field "Lopital.EmployeeComponent" "m_state" | Out-Null
 Require-Field "Lopital.EmployeeComponentPersistentData" "m_salary" | Out-Null

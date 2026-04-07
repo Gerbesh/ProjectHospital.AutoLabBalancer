@@ -16,7 +16,7 @@ namespace ProjectHospital.AutoLabBalancer
     {
         public const string PluginGuid = "local.projecthospital.autolabbalancer";
         public const string PluginName = "Project Hospital Productivity Tweaks";
-        public const string PluginVersion = "0.13.4";
+        public const string PluginVersion = "0.13.5";
 
         private AutoLabBalancerConfig _config;
         private Harmony _harmony;
@@ -467,16 +467,21 @@ namespace ProjectHospital.AutoLabBalancer
         public ConfigEntry<bool> EnablePerformanceOptimizations { get; private set; }
         public ConfigEntry<bool> EnableObjectSearchCache { get; private set; }
         public ConfigEntry<float> ObjectSearchCacheTtlSeconds { get; private set; }
+        public ConfigEntry<bool> EnableDoctorSearchCache { get; private set; }
+        public ConfigEntry<float> DoctorSearchCacheTtlSeconds { get; private set; }
         public ConfigEntry<bool> EnableSelectNextStepBackoff { get; private set; }
         public ConfigEntry<float> SelectNextStepBackoffSeconds { get; private set; }
+        public ConfigEntry<float> SelectNextStepBackoffMaxSeconds { get; private set; }
         public ConfigEntry<bool> EnableReservationNegativeCache { get; private set; }
         public ConfigEntry<float> ReservationNegativeCacheTtlSeconds { get; private set; }
         public ConfigEntry<bool> EnableNurseIdleBackoff { get; private set; }
         public ConfigEntry<float> NurseIdleBackoffSeconds { get; private set; }
+        public ConfigEntry<float> NurseIdleBackoffMaxSeconds { get; private set; }
         public ConfigEntry<bool> EnableNurseTaskBoard { get; private set; }
         public ConfigEntry<float> NurseTaskBoardTtlSeconds { get; private set; }
         public ConfigEntry<bool> EnableOutpatientQueueBackoff { get; private set; }
         public ConfigEntry<float> OutpatientQueueBackoffSeconds { get; private set; }
+        public ConfigEntry<float> OutpatientQueueBackoffMaxSeconds { get; private set; }
         public ConfigFile SourceConfig { get; private set; }
 
         public static AutoLabBalancerConfig Bind(ConfigFile config)
@@ -539,16 +544,21 @@ namespace ProjectHospital.AutoLabBalancer
                 EnablePerformanceOptimizations = config.Bind("PerformanceOptimizations", "EnablePerformanceOptimizations", true, "Enable experimental runtime performance optimizations based on short-lived caches and backoff."),
                 EnableObjectSearchCache = config.Bind("PerformanceOptimizations", "EnableObjectSearchCache", true, "Cache successful free-object searches for a short time."),
                 ObjectSearchCacheTtlSeconds = config.Bind("PerformanceOptimizations", "ObjectSearchCacheTtlSeconds", 0.35f, "TTL for successful object-search cache entries."),
+                EnableDoctorSearchCache = config.Bind("PerformanceOptimizations", "EnableDoctorSearchCache", true, "Cache successful doctor/lab-specialist qualification searches for a short time."),
+                DoctorSearchCacheTtlSeconds = config.Bind("PerformanceOptimizations", "DoctorSearchCacheTtlSeconds", 0.35f, "TTL for successful doctor/lab-specialist search cache entries."),
                 EnableSelectNextStepBackoff = config.Bind("PerformanceOptimizations", "EnableSelectNextStepBackoff", true, "Back off repeated hospitalized SelectNextStep calls when the previous attempt did not start new work."),
-                SelectNextStepBackoffSeconds = config.Bind("PerformanceOptimizations", "SelectNextStepBackoffSeconds", 0.25f, "Backoff duration for hospitalized SelectNextStep misses."),
+                SelectNextStepBackoffSeconds = config.Bind("PerformanceOptimizations", "SelectNextStepBackoffSeconds", 0.35f, "Initial backoff duration for hospitalized SelectNextStep misses."),
+                SelectNextStepBackoffMaxSeconds = config.Bind("PerformanceOptimizations", "SelectNextStepBackoffMaxSeconds", 2.0f, "Maximum adaptive backoff duration for repeated hospitalized SelectNextStep misses."),
                 EnableReservationNegativeCache = config.Bind("PerformanceOptimizations", "EnableReservationNegativeCache", true, "Cache short-lived failed examination/procedure reservations."),
                 ReservationNegativeCacheTtlSeconds = config.Bind("PerformanceOptimizations", "ReservationNegativeCacheTtlSeconds", 0.35f, "TTL for failed reservation cache entries."),
                 EnableNurseIdleBackoff = config.Bind("PerformanceOptimizations", "EnableNurseIdleBackoff", true, "Throttle repeated nurse idle scans when a nurse remains free and unreserved."),
-                NurseIdleBackoffSeconds = config.Bind("PerformanceOptimizations", "NurseIdleBackoffSeconds", 0.15f, "Backoff duration for repeated nurse idle scans."),
+                NurseIdleBackoffSeconds = config.Bind("PerformanceOptimizations", "NurseIdleBackoffSeconds", 0.30f, "Initial backoff duration for repeated nurse idle scans."),
+                NurseIdleBackoffMaxSeconds = config.Bind("PerformanceOptimizations", "NurseIdleBackoffMaxSeconds", 2.5f, "Maximum adaptive backoff duration for repeated nurse idle scans."),
                 EnableNurseTaskBoard = config.Bind("PerformanceOptimizations", "EnableNurseTaskBoard", true, "Build a short-lived department nurse task board and let idle nurses skip expensive scans only when the board has no visible work."),
                 NurseTaskBoardTtlSeconds = config.Bind("PerformanceOptimizations", "NurseTaskBoardTtlSeconds", 0.5f, "TTL for department nurse task board snapshots."),
                 EnableOutpatientQueueBackoff = config.Bind("PerformanceOptimizations", "EnableOutpatientQueueBackoff", true, "Throttle repeated outpatient waiting-room scans."),
-                OutpatientQueueBackoffSeconds = config.Bind("PerformanceOptimizations", "OutpatientQueueBackoffSeconds", 0.15f, "Backoff duration for repeated outpatient waiting-room scans.")
+                OutpatientQueueBackoffSeconds = config.Bind("PerformanceOptimizations", "OutpatientQueueBackoffSeconds", 0.30f, "Initial backoff duration for repeated outpatient waiting-room scans."),
+                OutpatientQueueBackoffMaxSeconds = config.Bind("PerformanceOptimizations", "OutpatientQueueBackoffMaxSeconds", 2.0f, "Maximum adaptive backoff duration for repeated outpatient waiting-room scans.")
             };
         }
     }
