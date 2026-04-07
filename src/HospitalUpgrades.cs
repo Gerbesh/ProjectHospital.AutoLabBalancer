@@ -30,6 +30,10 @@ namespace ProjectHospital.AutoLabBalancer
     internal static class HospitalUpgradesService
     {
         public const int MaxLevel = 6;
+        public const int AbsurdCost = 1000000;
+        public const int DevAbsurdCost = 200000;
+        public const float AbsurdActionMultiplier = 100f;
+        public const float AbsurdInsuranceMultiplier = 5f;
         private static readonly float[] ForwardMultipliers = { 1f, 1.15f, 1.35f, 1.60f, 2.00f, 2.50f, 3.00f };
         private static readonly float[] ReductionMultipliers = { 1f, 0.90f, 0.80f, 0.70f, 0.60f, 0.45f, 0.33f };
         private static readonly Dictionary<object, float> MovementRemainders = new Dictionary<object, float>(ReferenceEqualityComparer.Instance);
@@ -50,6 +54,7 @@ namespace ProjectHospital.AutoLabBalancer
         };
 
         private static readonly Dictionary<string, ConfigEntry<int>> Levels = new Dictionary<string, ConfigEntry<int>>();
+        private static readonly Dictionary<string, ConfigEntry<bool>> AbsurdLevels = new Dictionary<string, ConfigEntry<bool>>();
         private static readonly Dictionary<string, HospitalUpgradeDefinition> ById = new Dictionary<string, HospitalUpgradeDefinition>();
 
         static HospitalUpgradesService()
@@ -69,7 +74,17 @@ namespace ProjectHospital.AutoLabBalancer
         public static int GetNextCost(HospitalUpgradeDefinition definition)
         {
             var level = GetLevel(definition);
-            return level >= MaxLevel ? 0 : GetCost(definition, level);
+            if (level < MaxLevel)
+            {
+                return GetCost(definition, level);
+            }
+
+            return CanUseAbsurdTier() && !HasAbsurdLevel(definition) ? GetAbsurdCost() : 0;
+        }
+
+        public static bool HasAbsurdLevel(HospitalUpgradeDefinition definition)
+        {
+            return CanUseAbsurdTier() && GetAbsurdEntry(definition).Value;
         }
 
         public static float GetForwardMultiplier(string id)
@@ -78,6 +93,16 @@ namespace ProjectHospital.AutoLabBalancer
             if (!ById.TryGetValue(id, out definition))
             {
                 return 1f;
+            }
+
+            if (HasAbsurdLevel(definition))
+            {
+                if (id == "InsurancePressure")
+                {
+                    return AbsurdInsuranceMultiplier;
+                }
+
+                return AbsurdActionMultiplier;
             }
 
             return ForwardMultipliers[Mathf.Clamp(GetLevel(definition), 0, MaxLevel)];
@@ -89,6 +114,11 @@ namespace ProjectHospital.AutoLabBalancer
             if (!ById.TryGetValue(id, out definition))
             {
                 return 1f;
+            }
+
+            if (HasAbsurdLevel(definition))
+            {
+                return 0f;
             }
 
             return ReductionMultipliers[Mathf.Clamp(GetLevel(definition), 0, MaxLevel)];
@@ -152,6 +182,7 @@ namespace ProjectHospital.AutoLabBalancer
 
             var desiredExtraSteps = ((multiplier - 1f) * updateCount) + GetMovementRemainder(walkComponent);
             var extraSteps = Math.Max(0, (int)Math.Floor(desiredExtraSteps));
+            extraSteps = Math.Min(extraSteps, IsAbsurdMovement(walkComponent) ? 240 : 24);
             MovementRemainders[walkComponent] = desiredExtraSteps - extraSteps;
             if (extraSteps <= 0)
             {
@@ -222,7 +253,7 @@ namespace ProjectHospital.AutoLabBalancer
             var multiplier = GetReductionMultiplier("ProcurementCartel");
             if (multiplier < 0.999f)
             {
-                cost = Math.Max(1, (int)Math.Round(cost * multiplier));
+                cost = multiplier <= 0.001f ? 0 : Math.Max(1, (int)Math.Round(cost * multiplier));
             }
         }
 
@@ -244,7 +275,7 @@ namespace ProjectHospital.AutoLabBalancer
             var salary = Convert.ToInt32(field.GetValue(state));
             if (salary > 0)
             {
-                field.SetValue(state, Math.Max(1, (int)Math.Round(salary * multiplier)));
+                field.SetValue(state, multiplier <= 0.001f ? 0 : Math.Max(1, (int)Math.Round(salary * multiplier)));
             }
         }
 
@@ -267,12 +298,13 @@ namespace ProjectHospital.AutoLabBalancer
         {
             message = null;
             var level = GetLevel(definition);
-            if (level >= MaxLevel)
+            var buyingAbsurd = level >= MaxLevel;
+            if (buyingAbsurd && (!CanUseAbsurdTier() || HasAbsurdLevel(definition)))
             {
                 return false;
             }
 
-            var cost = GetCost(definition, level);
+            var cost = buyingAbsurd ? GetAbsurdCost() : GetCost(definition, level);
             var balance = GetBalance();
             if (balance < cost)
             {
@@ -281,8 +313,16 @@ namespace ProjectHospital.AutoLabBalancer
             }
 
             SetBalance(balance - cost);
-            var entry = GetEntry(definition);
-            entry.Value = level + 1;
+            if (buyingAbsurd)
+            {
+                GetAbsurdEntry(definition).Value = true;
+            }
+            else
+            {
+                var entry = GetEntry(definition);
+                entry.Value = level + 1;
+            }
+
             RuntimeSettings.Config.SourceConfig.Save();
             return true;
         }
@@ -298,6 +338,31 @@ namespace ProjectHospital.AutoLabBalancer
             entry = RuntimeSettings.Config.SourceConfig.Bind("HospitalUpgrades", definition.Id, 0, "Purchased level for " + definition.Id + ".");
             Levels[definition.Id] = entry;
             return entry;
+        }
+
+        private static ConfigEntry<bool> GetAbsurdEntry(HospitalUpgradeDefinition definition)
+        {
+            ConfigEntry<bool> entry;
+            if (AbsurdLevels.TryGetValue(definition.Id, out entry))
+            {
+                return entry;
+            }
+
+            entry = RuntimeSettings.Config.SourceConfig.Bind("HospitalUpgrades.Absurd", definition.Id, false, "Purchased absurd tier for " + definition.Id + ".");
+            AbsurdLevels[definition.Id] = entry;
+            return entry;
+        }
+
+        private static bool CanUseAbsurdTier()
+        {
+            return RuntimeSettings.Config != null
+                && RuntimeSettings.Config.Enabled.Value
+                && RuntimeSettings.Config.EnableAbsurdUpgrades.Value;
+        }
+
+        private static int GetAbsurdCost()
+        {
+            return RuntimeSettings.Config != null && RuntimeSettings.Config.DevCheapUpgrades.Value ? DevAbsurdCost : AbsurdCost;
         }
 
         private static int GetCost(HospitalUpgradeDefinition definition, int level)
@@ -372,6 +437,21 @@ namespace ProjectHospital.AutoLabBalancer
             }
 
             return multiplier;
+        }
+
+        private static bool IsAbsurdMovement(object walkComponent)
+        {
+            var entity = ReflectionHelpers.GetField(walkComponent, "m_entity");
+            return GetRoleMultiplier(entity) >= AbsurdActionMultiplier - 0.1f;
+        }
+
+        public static void ApplyJanitorCleaningDeltaTime(ref float deltaTime)
+        {
+            var definition = ById["SanitaryBlitz"];
+            if (HasAbsurdLevel(definition) && deltaTime > 0f && deltaTime <= 0.05f)
+            {
+                deltaTime *= AbsurdActionMultiplier;
+            }
         }
 
         private static float GetMovementRemainder(object walkComponent)
@@ -541,13 +621,13 @@ namespace ProjectHospital.AutoLabBalancer
             rightLayout.childForceExpandWidth = true;
             rightLayout.childForceExpandHeight = false;
             var rightElement = right.AddComponent<LayoutElement>();
-            rightElement.minWidth = 122f;
-            rightElement.preferredWidth = 122f;
+            rightElement.minWidth = 146f;
+            rightElement.preferredWidth = 146f;
             rightElement.flexibleWidth = 0f;
             _levelTexts.Add(CreateLayoutText(right.transform, string.Empty, 13, FontStyle.Normal, 18f));
             _costTexts.Add(CreateLayoutText(right.transform, string.Empty, 11, FontStyle.Normal, 18f));
 
-            var button = CreateButton(right.transform, ModText.T("UpgradeBuy"), new Vector2(70f, 32f));
+            var button = CreateButton(right.transform, ModText.T("UpgradeBuy"), new Vector2(96f, 32f));
             var tooltip = button.gameObject.AddComponent<HospitalUpgradeTooltip>();
             tooltip.Init(this, definition);
             _buttons.Add(button);
@@ -566,11 +646,28 @@ namespace ProjectHospital.AutoLabBalancer
             {
                 var definition = HospitalUpgradesService.Upgrades[i];
                 var level = HospitalUpgradesService.GetLevel(definition);
-                _levelTexts[i].text = ModText.F("UpgradeLevel", level);
-                _costTexts[i].text = level >= HospitalUpgradesService.MaxLevel
-                    ? ModText.T("UpgradeMax")
-                    : ModText.F("UpgradeCost", HospitalUpgradesService.GetNextCost(definition));
-                _buttons[i].interactable = level < HospitalUpgradesService.MaxLevel;
+                var hasAbsurd = HospitalUpgradesService.HasAbsurdLevel(definition);
+                _levelTexts[i].text = hasAbsurd
+                    ? ModText.F("UpgradeLevel", level) + " + " + ModText.T("UpgradeAbsurdBought")
+                    : ModText.F("UpgradeLevel", level);
+                if (level < HospitalUpgradesService.MaxLevel)
+                {
+                    _costTexts[i].text = ModText.F("UpgradeCost", HospitalUpgradesService.GetNextCost(definition));
+                    _buttons[i].GetComponentInChildren<Text>().text = ModText.T("UpgradeBuy");
+                    _buttons[i].interactable = true;
+                }
+                else if (HospitalUpgradesService.GetNextCost(definition) > 0)
+                {
+                    _costTexts[i].text = ModText.F("UpgradeAbsurdCost", HospitalUpgradesService.GetNextCost(definition));
+                    _buttons[i].GetComponentInChildren<Text>().text = ModText.T("UpgradeBuyAbsurd");
+                    _buttons[i].interactable = true;
+                }
+                else
+                {
+                    _costTexts[i].text = hasAbsurd ? ModText.T("UpgradeAbsurdBought") : ModText.T("UpgradeMax");
+                    _buttons[i].GetComponentInChildren<Text>().text = hasAbsurd ? ModText.T("UpgradeAbsurdBought") : ModText.T("UpgradeBuy");
+                    _buttons[i].interactable = false;
+                }
             }
         }
 
@@ -754,6 +851,21 @@ namespace ProjectHospital.AutoLabBalancer
         private static void Postfix(object __instance)
         {
             HospitalUpgradesService.ApplySalaryReduction(__instance);
+        }
+    }
+
+    [HarmonyPatch]
+    internal static class HospitalUpgradesJanitorCleaningPatch
+    {
+        private static MethodBase TargetMethod()
+        {
+            var type = AccessTools.TypeByName("Lopital.BehaviorJanitor");
+            return type == null ? null : AccessTools.Method(type, "UpdateStateCleaning", new[] { typeof(float) });
+        }
+
+        private static void Prefix(ref float deltaTime)
+        {
+            HospitalUpgradesService.ApplyJanitorCleaningDeltaTime(ref deltaTime);
         }
     }
 

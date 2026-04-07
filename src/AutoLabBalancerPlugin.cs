@@ -16,7 +16,7 @@ namespace ProjectHospital.AutoLabBalancer
     {
         public const string PluginGuid = "local.projecthospital.autolabbalancer";
         public const string PluginName = "Project Hospital Productivity Tweaks";
-        public const string PluginVersion = "0.11.4";
+        public const string PluginVersion = "0.12.0";
 
         private AutoLabBalancerConfig _config;
         private Harmony _harmony;
@@ -242,6 +242,7 @@ namespace ProjectHospital.AutoLabBalancer
             GUILayout.Space(8f);
             GUILayout.Label(ModText.T("DeveloperTools"));
             DrawToggle(_config.DevCheapUpgrades, ModText.T("DevCheapUpgrades"));
+            DrawToggle(_config.EnableAbsurdUpgrades, ModText.T("EnableAbsurdUpgrades"));
         }
 
         private void DrawCountersPage()
@@ -416,6 +417,7 @@ namespace ProjectHospital.AutoLabBalancer
         public ConfigEntry<int> ReserveEmergencyCapacityPercent { get; private set; }
         public ConfigEntry<bool> IntakeDebugLog { get; private set; }
         public ConfigEntry<bool> DevCheapUpgrades { get; private set; }
+        public ConfigEntry<bool> EnableAbsurdUpgrades { get; private set; }
         public ConfigFile SourceConfig { get; private set; }
 
         public static AutoLabBalancerConfig Bind(ConfigFile config)
@@ -468,7 +470,8 @@ namespace ProjectHospital.AutoLabBalancer
                 AmbulancePatientsPerDoctorPerShift = config.Bind("IntakeControl", "AmbulancePatientsPerDoctorPerShift", 3, "Dynamic ambulance/immobile patient capacity per outpatient doctor."),
                 ReserveEmergencyCapacityPercent = config.Bind("IntakeControl", "ReserveEmergencyCapacityPercent", 15, "Percent of dynamic capacity reserved for emergency headroom."),
                 IntakeDebugLog = config.Bind("IntakeControl", "IntakeDebugLog", false, "Write detailed intake-control decisions."),
-                DevCheapUpgrades = config.Bind("Developer", "DevCheapUpgrades", false, "Developer helper: reduce hospital upgrade prices so the most expensive next level costs 100000.")
+                DevCheapUpgrades = config.Bind("Developer", "DevCheapUpgrades", false, "Developer helper: reduce hospital upgrade prices so the most expensive next level costs 100000."),
+                EnableAbsurdUpgrades = config.Bind("Developer", "EnableAbsurdUpgrades", false, "Enable absurd hospital upgrade tier: expensive, intentionally overpowered final effects.")
             };
         }
     }
