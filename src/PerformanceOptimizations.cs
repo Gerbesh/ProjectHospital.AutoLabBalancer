@@ -35,11 +35,146 @@ namespace ProjectHospital.AutoLabBalancer
         public float Delay;
     }
 
+    internal sealed class ReservationBrokerCountersSnapshot
+    {
+        public long Hits;
+        public long Misses;
+        public long Stores;
+    }
+
+    internal static class ReservationBrokerService
+    {
+        private static readonly Dictionary<string, TimedCacheEntry<ProcedureSceneAvailability>> Failures = new Dictionary<string, TimedCacheEntry<ProcedureSceneAvailability>>();
+        private static long _hits;
+        private static long _misses;
+        private static long _stores;
+
+        public static bool TryGet(MethodBase method, object[] args, ref ProcedureSceneAvailability result)
+        {
+            if (!PerformanceOptimizationService.Enabled
+                || RuntimeSettings.Config == null
+                || !RuntimeSettings.Config.EnableReservationBroker.Value
+                || !RuntimeSettings.Config.EnableReservationNegativeCache.Value)
+            {
+                return false;
+            }
+
+            var key = BuildReservationKey(method, args);
+            TimedCacheEntry<ProcedureSceneAvailability> entry;
+            if (!Failures.TryGetValue(key, out entry) || Time.realtimeSinceStartup >= entry.ExpiresAt)
+            {
+                _misses++;
+                return false;
+            }
+
+            result = entry.Value;
+            _hits++;
+            return true;
+        }
+
+        public static void Store(MethodBase method, object[] args, ProcedureSceneAvailability result)
+        {
+            if (!PerformanceOptimizationService.Enabled
+                || RuntimeSettings.Config == null
+                || !RuntimeSettings.Config.EnableReservationBroker.Value
+                || !RuntimeSettings.Config.EnableReservationNegativeCache.Value)
+            {
+                return;
+            }
+
+            var key = BuildReservationKey(method, args);
+            if (result == ProcedureSceneAvailability.AVAILABLE)
+            {
+                Failures.Remove(key);
+                return;
+            }
+
+            Failures[key] = new TimedCacheEntry<ProcedureSceneAvailability>
+            {
+                Value = result,
+                ExpiresAt = Time.realtimeSinceStartup + Mathf.Max(0.05f, RuntimeSettings.Config.ReservationBrokerTtlSeconds.Value)
+            };
+            _stores++;
+        }
+
+        public static void Tick(float now)
+        {
+            var expired = new List<string>();
+            foreach (var pair in Failures)
+            {
+                if (now >= pair.Value.ExpiresAt)
+                {
+                    expired.Add(pair.Key);
+                }
+            }
+
+            foreach (var key in expired)
+            {
+                Failures.Remove(key);
+            }
+        }
+
+        public static ReservationBrokerCountersSnapshot GetCounters()
+        {
+            return new ReservationBrokerCountersSnapshot
+            {
+                Hits = _hits,
+                Misses = _misses,
+                Stores = _stores
+            };
+        }
+
+        public static void ResetCounters()
+        {
+            _hits = 0;
+            _misses = 0;
+            _stores = 0;
+        }
+
+        private static string BuildReservationKey(MethodBase method, object[] args)
+        {
+            var key = method == null ? "unknown" : method.Name;
+            if (args == null)
+            {
+                return key;
+            }
+
+            for (var i = 0; i < args.Length; i++)
+            {
+                key += "|" + BuildReservationPart(args[i]);
+            }
+
+            return key;
+        }
+
+        private static string BuildReservationPart(object value)
+        {
+            if (value == null)
+            {
+                return "null";
+            }
+
+            var type = value.GetType();
+            var locId = ReflectionHelpers.GetStringProperty(value, "LocID");
+            if (!string.IsNullOrEmpty(locId))
+            {
+                return type.Name + ":" + locId;
+            }
+
+            var id = ReflectionHelpers.GetField(value, "ID") ?? ReflectionHelpers.GetField(value, "m_entityID");
+            if (id != null)
+            {
+                return type.Name + ":" + id;
+            }
+
+            return type.Name + "#" + ReferenceEqualityComparer.Instance.GetHashCode(value);
+        }
+    }
+
     internal static class PerformanceOptimizationService
     {
         private static readonly Dictionary<string, TimedCacheEntry<TileObject>> ObjectSearchCache = new Dictionary<string, TimedCacheEntry<TileObject>>();
         private static readonly Dictionary<string, TimedCacheEntry<Entity>> EntitySearchCache = new Dictionary<string, TimedCacheEntry<Entity>>();
-        private static readonly Dictionary<string, TimedCacheEntry<ProcedureSceneAvailability>> ReservationFailureCache = new Dictionary<string, TimedCacheEntry<ProcedureSceneAvailability>>();
         private static readonly Dictionary<object, NurseTaskBoardSnapshot> NurseBoards = new Dictionary<object, NurseTaskBoardSnapshot>();
         private static readonly Dictionary<object, BackoffState> SelectNextStepBackoff = new Dictionary<object, BackoffState>();
         private static readonly Dictionary<object, BackoffState> NurseIdleBackoff = new Dictionary<object, BackoffState>();
@@ -67,7 +202,7 @@ namespace ProjectHospital.AutoLabBalancer
             _nextCleanupAt = now + 5f;
             Prune(ObjectSearchCache, now);
             Prune(EntitySearchCache, now);
-            Prune(ReservationFailureCache, now);
+            ReservationBrokerService.Tick(now);
             PruneNurseBoards(now);
             Prune(SelectNextStepBackoff, now);
             Prune(NurseIdleBackoff, now);
@@ -194,40 +329,12 @@ namespace ProjectHospital.AutoLabBalancer
 
         public static bool TryGetReservationFailure(MethodBase method, object[] args, ref ProcedureSceneAvailability result)
         {
-            if (!Enabled || !RuntimeSettings.Config.EnableReservationNegativeCache.Value)
-            {
-                return false;
-            }
-
-            TimedCacheEntry<ProcedureSceneAvailability> entry;
-            if (!ReservationFailureCache.TryGetValue(BuildKey(method, args), out entry) || Time.realtimeSinceStartup >= entry.ExpiresAt)
-            {
-                return false;
-            }
-
-            result = entry.Value;
-            return true;
+            return ReservationBrokerService.TryGet(method, args, ref result);
         }
 
         public static void StoreReservationResult(MethodBase method, object[] args, ProcedureSceneAvailability result)
         {
-            if (!Enabled || !RuntimeSettings.Config.EnableReservationNegativeCache.Value)
-            {
-                return;
-            }
-
-            var key = BuildKey(method, args);
-            if (result == ProcedureSceneAvailability.AVAILABLE)
-            {
-                ReservationFailureCache.Remove(key);
-                return;
-            }
-
-            ReservationFailureCache[key] = new TimedCacheEntry<ProcedureSceneAvailability>
-            {
-                Value = result,
-                ExpiresAt = Time.realtimeSinceStartup + Mathf.Max(0.05f, RuntimeSettings.Config.ReservationNegativeCacheTtlSeconds.Value)
-            };
+            ReservationBrokerService.Store(method, args, result);
         }
 
         public static bool ShouldSkipNurseIdle(object nurse)

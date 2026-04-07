@@ -1,12 +1,39 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Collections;
 using System.Threading;
 using HarmonyLib;
 using UnityEngine;
 
 namespace ProjectHospital.AutoLabBalancer
 {
+    internal enum SchedulingTaskType
+    {
+        CriticalCare,
+        WaitingPatient,
+        PlannedSurgery,
+        HospitalizedProcedure,
+        Medicine,
+        Food,
+        Transport,
+        CollapseCare,
+        Examination,
+        Treatment
+    }
+
+    internal sealed class SchedulingTask
+    {
+        public string TaskId;
+        public object Patient;
+        public object Department;
+        public string RequiredRole;
+        public SchedulingTaskType Type;
+        public int Priority;
+        public object TargetProcedure;
+        public float ExpiresAt;
+    }
+
     internal sealed class SchedulingDepartmentBoard
     {
         public object Department;
@@ -27,6 +54,7 @@ namespace ProjectHospital.AutoLabBalancer
         public int FreeJanitors;
         public int NurseDryRunDispatches;
         public int DoctorDryRunDispatches;
+        public readonly List<SchedulingTask> Tasks = new List<SchedulingTask>();
 
         public int TotalTasks
         {
@@ -84,6 +112,7 @@ namespace ProjectHospital.AutoLabBalancer
         public int Staff;
         public int FreeStaff;
         public int Patients;
+        public int TaskObjects;
         public string TopBoardSummary;
         public readonly Dictionary<object, SchedulingDepartmentBoard> Boards = new Dictionary<object, SchedulingDepartmentBoard>(ReferenceEqualityComparer.Instance);
     }
@@ -102,6 +131,9 @@ namespace ProjectHospital.AutoLabBalancer
         public long OutpatientGatingSkips;
         public long DoctorSearchGatingChecks;
         public long DoctorSearchGatingSkips;
+        public long ReservationBrokerHits;
+        public long ReservationBrokerMisses;
+        public long ReservationBrokerStores;
     }
 
     internal static class SchedulingEngineService
@@ -229,6 +261,7 @@ namespace ProjectHospital.AutoLabBalancer
 
         public static SchedulingCountersSnapshot GetCounters()
         {
+            var broker = ReservationBrokerService.GetCounters();
             lock (Sync)
             {
                 return new SchedulingCountersSnapshot
@@ -244,7 +277,10 @@ namespace ProjectHospital.AutoLabBalancer
                     OutpatientGatingChecks = Interlocked.Read(ref _outpatientGatingChecks),
                     OutpatientGatingSkips = Interlocked.Read(ref _outpatientGatingSkips),
                     DoctorSearchGatingChecks = Interlocked.Read(ref _doctorSearchGatingChecks),
-                    DoctorSearchGatingSkips = Interlocked.Read(ref _doctorSearchGatingSkips)
+                    DoctorSearchGatingSkips = Interlocked.Read(ref _doctorSearchGatingSkips),
+                    ReservationBrokerHits = broker.Hits,
+                    ReservationBrokerMisses = broker.Misses,
+                    ReservationBrokerStores = broker.Stores
                 };
             }
         }
@@ -265,6 +301,7 @@ namespace ProjectHospital.AutoLabBalancer
                 Interlocked.Exchange(ref _outpatientGatingSkips, 0);
                 Interlocked.Exchange(ref _doctorSearchGatingChecks, 0);
                 Interlocked.Exchange(ref _doctorSearchGatingSkips, 0);
+                ReservationBrokerService.ResetCounters();
             }
         }
 
@@ -413,6 +450,8 @@ namespace ProjectHospital.AutoLabBalancer
                 board.Score += 800;
                 board.NurseScore += 350;
                 board.DoctorScore += 450;
+                AddTask(board, patient, "nurse", SchedulingTaskType.PlannedSurgery, 350, null);
+                AddTask(board, patient, "doctor", SchedulingTaskType.PlannedSurgery, 450, null);
             }
 
             var hazard = InvokeObject(patient, "GetWorstKnownHazard");
@@ -422,6 +461,8 @@ namespace ProjectHospital.AutoLabBalancer
                 board.Score += 1200;
                 board.NurseScore += 600;
                 board.DoctorScore += 600;
+                AddTask(board, patient, "nurse", SchedulingTaskType.CriticalCare, 600, null);
+                AddTask(board, patient, "doctor", SchedulingTaskType.CriticalCare, 600, null);
             }
 
             var hospitalization = ReflectionHelpers.GetComponentByTypeName(character, "Lopital.HospitalizationComponent");
@@ -440,18 +481,22 @@ namespace ProjectHospital.AutoLabBalancer
                     board.WaitingPatients++;
                     board.Score += 60;
                     board.DoctorScore += 60;
+                    AddTask(board, patient, "doctor", SchedulingTaskType.WaitingPatient, 60, null);
                 }
             }
         }
 
         private static void CountHospitalizedTasks(object hospitalization, SchedulingDepartmentBoard board)
         {
+            var patient = ReflectionHelpers.GetComponentByTypeName(ReflectionHelpers.GetField(hospitalization, "m_entity"), "Lopital.BehaviorPatient");
             if (ReflectionHelpers.InvokeBool(hospitalization, "WillCollapse"))
             {
                 board.CollapseCareTasks++;
                 board.Score += 1500;
                 board.NurseScore += 1200;
                 board.DoctorScore += 300;
+                AddTask(board, patient, "nurse", SchedulingTaskType.CollapseCare, 1200, null);
+                AddTask(board, patient, "doctor", SchedulingTaskType.CollapseCare, 300, null);
             }
 
             if (ReflectionHelpers.InvokeBool(hospitalization, "HasAnyScheduledProcedures"))
@@ -459,6 +504,7 @@ namespace ProjectHospital.AutoLabBalancer
                 board.HospitalizedScheduledProcedures++;
                 board.Score += 250;
                 board.NurseScore += 250;
+                AddTask(board, patient, "nurse", SchedulingTaskType.HospitalizedProcedure, 250, null);
             }
 
             var state = ReflectionHelpers.GetField(hospitalization, "m_state");
@@ -473,6 +519,7 @@ namespace ProjectHospital.AutoLabBalancer
                 board.MedicineTasks++;
                 board.Score += 160;
                 board.NurseScore += 160;
+                AddTask(board, patient, "nurse", SchedulingTaskType.Medicine, 160, null);
             }
 
             if (Equals(ReflectionHelpers.GetField(state, "m_lunchReady"), true)
@@ -481,6 +528,7 @@ namespace ProjectHospital.AutoLabBalancer
                 board.FoodTasks++;
                 board.Score += 40;
                 board.NurseScore += 40;
+                AddTask(board, patient, "nurse", SchedulingTaskType.Food, 40, null);
             }
 
             if (Equals(ReflectionHelpers.GetField(state, "m_oustideRoom"), true))
@@ -488,7 +536,57 @@ namespace ProjectHospital.AutoLabBalancer
                 board.TransportTasks++;
                 board.Score += 180;
                 board.NurseScore += 180;
+                AddTask(board, patient, "nurse", SchedulingTaskType.Transport, 180, null);
             }
+
+            CountProcedureQueueTasks(patient, board);
+        }
+
+        private static void CountProcedureQueueTasks(object patient, SchedulingDepartmentBoard board)
+        {
+            var entity = ReflectionHelpers.GetField(patient, "m_entity");
+            var procedure = ReflectionHelpers.GetComponentByTypeName(entity, "Lopital.ProcedureComponent");
+            var state = ReflectionHelpers.GetField(procedure, "m_state");
+            var queue = ReflectionHelpers.GetField(state, "m_procedureQueue");
+            if (queue == null)
+            {
+                return;
+            }
+
+            foreach (var planned in ReflectionHelpers.GetEnumerableField(queue, "m_plannedExaminationStates"))
+            {
+                AddTask(board, patient, "nurse", SchedulingTaskType.Examination, 120, ReflectionHelpers.ResolvePointer(ReflectionHelpers.GetField(planned, "m_examination")));
+            }
+
+            foreach (var planned in ReflectionHelpers.GetEnumerableField(queue, "m_plannedTreatmentStates"))
+            {
+                AddTask(board, patient, "nurse", SchedulingTaskType.Treatment, 120, ReflectionHelpers.ResolvePointer(ReflectionHelpers.GetField(planned, "m_treatment")));
+            }
+        }
+
+        private static void AddTask(SchedulingDepartmentBoard board, object patient, string requiredRole, SchedulingTaskType type, int priority, object targetProcedure)
+        {
+            if (board == null || patient == null)
+            {
+                return;
+            }
+
+            board.Tasks.Add(new SchedulingTask
+            {
+                TaskId = BuildTaskId(patient, requiredRole, type, targetProcedure),
+                Patient = patient,
+                Department = board.Department,
+                RequiredRole = requiredRole,
+                Type = type,
+                Priority = priority,
+                TargetProcedure = targetProcedure,
+                ExpiresAt = Time.realtimeSinceStartup + 2f
+            });
+        }
+
+        private static string BuildTaskId(object patient, string requiredRole, SchedulingTaskType type, object targetProcedure)
+        {
+            return GetObjectKey(patient) + ":" + requiredRole + ":" + type + ":" + GetObjectKey(targetProcedure);
         }
 
         private static void FinalizeSnapshot(SchedulingSnapshot snapshot)
@@ -506,6 +604,7 @@ namespace ProjectHospital.AutoLabBalancer
                 snapshot.WaitingPatientTasks += board.WaitingPatients;
                 snapshot.NurseTasks += board.NurseTasks;
                 snapshot.DoctorTasks += board.DoctorTasks;
+                snapshot.TaskObjects += board.Tasks.Count;
                 board.NurseDryRunDispatches = Math.Min(board.FreeNurses, board.NurseTasks);
                 board.DoctorDryRunDispatches = Math.Min(board.FreeDoctors + board.FreeLabSpecialists, board.DoctorTasks);
                 snapshot.NurseDryRunDispatches += board.NurseDryRunDispatches;
@@ -520,6 +619,7 @@ namespace ProjectHospital.AutoLabBalancer
             {
                 snapshot.TopBoardSummary = "score=" + top.Score
                     + " tasks=" + top.TotalTasks
+                    + " taskObjects=" + top.Tasks.Count
                     + " critical=" + (top.CriticalPatients + top.CollapseCareTasks)
                     + " surgery=" + top.PlannedSurgeryPatients
                     + " meds=" + top.MedicineTasks
@@ -559,6 +659,17 @@ namespace ProjectHospital.AutoLabBalancer
         {
             var state = ReflectionHelpers.GetField(patient, "m_state");
             return ReflectionHelpers.ResolvePointer(ReflectionHelpers.GetField(state, "m_department"));
+        }
+
+        private static string GetObjectKey(object value)
+        {
+            if (value == null)
+            {
+                return "null";
+            }
+
+            var entityId = ReflectionHelpers.GetField(value, "ID") ?? ReflectionHelpers.GetField(value, "m_entityID");
+            return entityId == null ? value.GetType().Name + "#" + ReferenceEqualityComparer.Instance.GetHashCode(value) : Convert.ToString(entityId);
         }
 
         private static object InvokeObject(object instance, string methodName)

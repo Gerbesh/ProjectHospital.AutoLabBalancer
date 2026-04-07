@@ -16,7 +16,7 @@ namespace ProjectHospital.AutoLabBalancer
     {
         public const string PluginGuid = "local.projecthospital.autolabbalancer";
         public const string PluginName = "Project Hospital Productivity Tweaks";
-        public const string PluginVersion = "0.14.5";
+        public const string PluginVersion = "0.15.0";
 
         private AutoLabBalancerConfig _config;
         private Harmony _harmony;
@@ -254,6 +254,7 @@ namespace ProjectHospital.AutoLabBalancer
             DrawToggle(_config.EnableSchedulingEngine, ModText.T("EnableSchedulingEngine"));
             DrawToggle(_config.EnableSchedulingEngineGating, ModText.T("EnableSchedulingEngineGating"));
             DrawToggle(_config.EnableNurseTaskBoard, ModText.T("EnableNurseTaskBoard"));
+            DrawToggle(_config.EnableReservationBroker, ModText.T("EnableReservationBroker"));
             GUILayout.Space(8f);
             GUILayout.Label(ModText.T("IntakeControl"));
             DrawToggle(_config.EnableIntakeControl, ModText.T("EnableIntakeControl"));
@@ -424,6 +425,7 @@ namespace ProjectHospital.AutoLabBalancer
                         scheduling.FreeStaff,
                         scheduling.Staff,
                         scheduling.RebuildMs.ToString("0.00")));
+                    GUILayout.Label(ModText.F("SchedulingEngineTaskObjectsLine", scheduling.TaskObjects));
                     GUILayout.Label(ModText.T("SchedulingEngineTopBoard") + scheduling.TopBoardSummary);
                 }
 
@@ -441,6 +443,10 @@ namespace ProjectHospital.AutoLabBalancer
                     counters.OutpatientGatingChecks,
                     counters.DoctorSearchGatingSkips,
                     counters.DoctorSearchGatingChecks));
+                GUILayout.Label(ModText.F("ReservationBrokerCountersLine",
+                    counters.ReservationBrokerHits,
+                    counters.ReservationBrokerMisses,
+                    counters.ReservationBrokerStores));
             }
 
             if (GUILayout.Button(ModText.T("PerformanceProfilerReset")))
@@ -534,6 +540,8 @@ namespace ProjectHospital.AutoLabBalancer
         public ConfigEntry<float> SelectNextStepBackoffMaxSeconds { get; private set; }
         public ConfigEntry<bool> EnableReservationNegativeCache { get; private set; }
         public ConfigEntry<float> ReservationNegativeCacheTtlSeconds { get; private set; }
+        public ConfigEntry<bool> EnableReservationBroker { get; private set; }
+        public ConfigEntry<float> ReservationBrokerTtlSeconds { get; private set; }
         public ConfigEntry<bool> EnableNurseIdleBackoff { get; private set; }
         public ConfigEntry<float> NurseIdleBackoffSeconds { get; private set; }
         public ConfigEntry<float> NurseIdleBackoffMaxSeconds { get; private set; }
@@ -620,6 +628,8 @@ namespace ProjectHospital.AutoLabBalancer
                 SelectNextStepBackoffMaxSeconds = config.Bind("PerformanceOptimizations", "SelectNextStepBackoffMaxSeconds", 2.0f, "Maximum adaptive backoff duration for repeated hospitalized SelectNextStep misses."),
                 EnableReservationNegativeCache = config.Bind("PerformanceOptimizations", "EnableReservationNegativeCache", true, "Cache short-lived failed examination/procedure reservations."),
                 ReservationNegativeCacheTtlSeconds = config.Bind("PerformanceOptimizations", "ReservationNegativeCacheTtlSeconds", 0.35f, "TTL for failed reservation cache entries."),
+                EnableReservationBroker = config.Bind("PerformanceOptimizations", "EnableReservationBroker", true, "Route ReserveExamination/ReserveProcedure through a central broker that deduplicates short-lived failed reservation attempts."),
+                ReservationBrokerTtlSeconds = config.Bind("PerformanceOptimizations", "ReservationBrokerTtlSeconds", 0.35f, "TTL for reservation broker failed reservation entries."),
                 EnableNurseIdleBackoff = config.Bind("PerformanceOptimizations", "EnableNurseIdleBackoff", true, "Throttle repeated nurse idle scans when a nurse remains free and unreserved."),
                 NurseIdleBackoffSeconds = config.Bind("PerformanceOptimizations", "NurseIdleBackoffSeconds", 0.30f, "Initial backoff duration for repeated nurse idle scans."),
                 NurseIdleBackoffMaxSeconds = config.Bind("PerformanceOptimizations", "NurseIdleBackoffMaxSeconds", 2.5f, "Maximum adaptive backoff duration for repeated nurse idle scans."),
