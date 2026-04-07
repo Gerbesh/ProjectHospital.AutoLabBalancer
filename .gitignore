@@ -1,0 +1,11 @@
+src/bin/
+src/obj/
+dist/
+tools/
+*.user
+*.suo
+*.pdb
+*.dll
+*.zip
+*.log
+.vs/
