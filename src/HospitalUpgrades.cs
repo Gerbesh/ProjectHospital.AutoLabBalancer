@@ -191,6 +191,27 @@ namespace ProjectHospital.AutoLabBalancer
             }
         }
 
+        public static void ApplyAnimationDeltaTime(object animModelComponent, ref float deltaTime)
+        {
+            if (animModelComponent == null || deltaTime <= 0f || deltaTime > 0.05f)
+            {
+                return;
+            }
+
+            var entity = ReflectionHelpers.GetField(animModelComponent, "m_entity");
+            var multiplier = GetRoleMultiplier(entity);
+            var walk = ReflectionHelpers.GetComponentByTypeName(entity, "Lopital.WalkComponent");
+            if (walk != null && ProductivityTweaksService.ShouldBoostRunningMovement(walk))
+            {
+                multiplier += Math.Max(1f, RuntimeSettings.Config.EmergencyRunSpeedMultiplier.Value) - 1f;
+            }
+
+            if (multiplier > 1.001f)
+            {
+                deltaTime *= multiplier;
+            }
+        }
+
         public static void ApplyBuildCostReduction(ref int cost)
         {
             if (cost <= 0)
@@ -319,6 +340,11 @@ namespace ProjectHospital.AutoLabBalancer
         private static float GetMovementMultiplier(object walkComponent)
         {
             var entity = ReflectionHelpers.GetField(walkComponent, "m_entity");
+            return GetRoleMultiplier(entity);
+        }
+
+        private static float GetRoleMultiplier(object entity)
+        {
             if (entity == null)
             {
                 return 1f;
@@ -680,6 +706,21 @@ namespace ProjectHospital.AutoLabBalancer
         private static void Postfix(object __instance, int updateCount, float deltaTime)
         {
             HospitalUpgradesService.ApplyRoleMovementExtraSteps(__instance, updateCount, deltaTime);
+        }
+    }
+
+    [HarmonyPatch]
+    internal static class HospitalUpgradesAnimationPatch
+    {
+        private static MethodBase TargetMethod()
+        {
+            var type = AccessTools.TypeByName("Lopital.AnimModelComponent");
+            return type == null ? null : AccessTools.Method(type, "Update", new[] { typeof(float) });
+        }
+
+        private static void Prefix(object __instance, ref float deltaTime)
+        {
+            HospitalUpgradesService.ApplyAnimationDeltaTime(__instance, ref deltaTime);
         }
     }
 

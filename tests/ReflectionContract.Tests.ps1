@@ -242,6 +242,9 @@ Require-Method "Lopital.ProcedureScriptExaminationStatLab" "ScriptUpdate" @("Sys
 Require-Method "Lopital.ProcedureScriptTreatmentProcedure" "ScriptUpdate" @("System.Single") | Out-Null
 Require-Method "Lopital.Hospital" "Pay" @("System.Int32", "Lopital.PaymentCategory") | Out-Null
 Require-Method "Lopital.Department" "Pay" @("System.Int32", "Lopital.PaymentCategory", "GLib.Entity") | Out-Null
+Require-Method "Lopital.AnimModelComponent" "Update" @("System.Single") | Out-Null
+Require-Field "Lopital.AnimModelComponent" "m_entity" | Out-Null
+Require-Field "Lopital.AnimModelComponentPersistentData" "m_animationTime" | Out-Null
 Require-Method "Lopital.EmployeeComponent" "ComputeSalary" @() | Out-Null
 Require-Field "Lopital.EmployeeComponent" "m_state" | Out-Null
 Require-Field "Lopital.EmployeeComponentPersistentData" "m_salary" | Out-Null
