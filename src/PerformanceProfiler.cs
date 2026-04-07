@@ -102,7 +102,10 @@ namespace ProjectHospital.AutoLabBalancer
             }
 
             RuntimeSettings.Logger.LogInfo(ModText.T("PerfTag") + " " + string.Join(" | ", samples.Select(FormatSample).ToArray()));
-            Reset();
+            if (RuntimeSettings.Config.ProfilerAutoResetAfterLog.Value)
+            {
+                Reset();
+            }
         }
 
         public static List<PerformanceSample> GetTopSamples(int limit)

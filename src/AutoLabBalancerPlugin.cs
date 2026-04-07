@@ -16,7 +16,7 @@ namespace ProjectHospital.AutoLabBalancer
     {
         public const string PluginGuid = "local.projecthospital.autolabbalancer";
         public const string PluginName = "Project Hospital Productivity Tweaks";
-        public const string PluginVersion = "0.12.3";
+        public const string PluginVersion = "0.12.4";
 
         private AutoLabBalancerConfig _config;
         private Harmony _harmony;
@@ -245,6 +245,7 @@ namespace ProjectHospital.AutoLabBalancer
             GUILayout.Space(8f);
             GUILayout.Label(ModText.T("PerformanceProfiler"));
             DrawToggle(_config.EnablePerformanceProfiler, ModText.T("EnablePerformanceProfiler"));
+            DrawToggle(_config.ProfilerAutoResetAfterLog, ModText.T("ProfilerAutoResetAfterLog"));
             GUILayout.Space(8f);
             GUILayout.Label(ModText.T("IntakeControl"));
             DrawToggle(_config.EnableIntakeControl, ModText.T("EnableIntakeControl"));
@@ -459,6 +460,7 @@ namespace ProjectHospital.AutoLabBalancer
         public ConfigEntry<float> ProfilerSampleIntervalSeconds { get; private set; }
         public ConfigEntry<int> ProfilerTopN { get; private set; }
         public ConfigEntry<float> ProfilerSlowCallMs { get; private set; }
+        public ConfigEntry<bool> ProfilerAutoResetAfterLog { get; private set; }
         public ConfigFile SourceConfig { get; private set; }
 
         public static AutoLabBalancerConfig Bind(ConfigFile config)
@@ -514,9 +516,10 @@ namespace ProjectHospital.AutoLabBalancer
                 DevCheapUpgrades = config.Bind("Developer", "DevCheapUpgrades", false, "Developer helper: reduce hospital upgrade prices so the most expensive next level costs 100000."),
                 EnableAbsurdUpgrades = config.Bind("Developer", "EnableAbsurdUpgrades", false, "Enable absurd hospital upgrade tier: expensive, intentionally overpowered final effects."),
                 EnablePerformanceProfiler = config.Bind("Performance", "EnablePerformanceProfiler", false, "Enable internal performance profiler. Default off because Harmony timing has overhead."),
-                ProfilerSampleIntervalSeconds = config.Bind("Performance", "ProfilerSampleIntervalSeconds", 10f, "How often to log and reset profiler rolling samples."),
+                ProfilerSampleIntervalSeconds = config.Bind("Performance", "ProfilerSampleIntervalSeconds", 10f, "How often to log profiler samples."),
                 ProfilerTopN = config.Bind("Performance", "ProfilerTopN", 20, "How many profiler rows to show/log."),
-                ProfilerSlowCallMs = config.Bind("Performance", "ProfilerSlowCallMs", 5f, "Calls at or above this duration are counted as slow calls.")
+                ProfilerSlowCallMs = config.Bind("Performance", "ProfilerSlowCallMs", 5f, "Calls at or above this duration are counted as slow calls."),
+                ProfilerAutoResetAfterLog = config.Bind("Performance", "ProfilerAutoResetAfterLog", false, "When true, reset profiler samples after each periodic log. Leave false for long manual profiling sessions.")
             };
         }
     }
