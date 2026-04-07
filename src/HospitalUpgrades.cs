@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using BepInEx.Configuration;
 using HarmonyLib;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 namespace ProjectHospital.AutoLabBalancer
@@ -140,6 +141,7 @@ namespace ProjectHospital.AutoLabBalancer
         private Text _message;
         private readonly List<Text> _levelTexts = new List<Text>();
         private readonly List<Text> _costTexts = new List<Text>();
+        private readonly List<Button> _buttons = new List<Button>();
         private Font _font;
 
         public void Create(Transform parent)
@@ -151,18 +153,46 @@ namespace ProjectHospital.AutoLabBalancer
             var rect = _panel.AddComponent<RectTransform>();
             rect.anchorMin = new Vector2(0f, 0f);
             rect.anchorMax = new Vector2(1f, 1f);
-            rect.offsetMin = new Vector2(20f, 20f);
-            rect.offsetMax = new Vector2(-20f, -190f);
+            rect.offsetMin = new Vector2(28f, 34f);
+            rect.offsetMax = new Vector2(-28f, -56f);
 
             var image = _panel.AddComponent<Image>();
-            image.color = new Color(1f, 1f, 1f, 0.86f);
+            image.color = new Color(1f, 1f, 1f, 0.94f);
 
-            CreateText(_panel.transform, ModText.T("UpgradesTitle"), 24, FontStyle.Bold, new Vector2(20f, -18f), new Vector2(620f, 32f));
-            _message = CreateText(_panel.transform, string.Empty, 15, FontStyle.Bold, new Vector2(360f, -22f), new Vector2(260f, 28f));
+            CreateText(_panel.transform, ModText.T("UpgradesTitle"), 24, FontStyle.Bold, new Vector2(18f, -14f), new Vector2(320f, 32f));
+            _message = CreateText(_panel.transform, string.Empty, 14, FontStyle.Bold, new Vector2(340f, -16f), new Vector2(290f, 32f));
+
+            var viewport = new GameObject("Viewport");
+            viewport.transform.SetParent(_panel.transform, false);
+            var viewportRect = viewport.AddComponent<RectTransform>();
+            viewportRect.anchorMin = new Vector2(0f, 0f);
+            viewportRect.anchorMax = new Vector2(1f, 1f);
+            viewportRect.offsetMin = new Vector2(16f, 16f);
+            viewportRect.offsetMax = new Vector2(-16f, -54f);
+            var viewportImage = viewport.AddComponent<Image>();
+            viewportImage.color = new Color(1f, 1f, 1f, 0.18f);
+            viewport.AddComponent<Mask>().showMaskGraphic = false;
+
+            var content = new GameObject("Content");
+            content.transform.SetParent(viewport.transform, false);
+            var contentRect = content.AddComponent<RectTransform>();
+            contentRect.anchorMin = new Vector2(0f, 1f);
+            contentRect.anchorMax = new Vector2(1f, 1f);
+            contentRect.pivot = new Vector2(0f, 1f);
+            contentRect.anchoredPosition = Vector2.zero;
+            contentRect.sizeDelta = new Vector2(0f, HospitalUpgradesService.Upgrades.Length * 72f + 10f);
+
+            var scrollRect = _panel.AddComponent<ScrollRect>();
+            scrollRect.viewport = viewportRect;
+            scrollRect.content = contentRect;
+            scrollRect.horizontal = false;
+            scrollRect.vertical = true;
+            scrollRect.movementType = ScrollRect.MovementType.Clamped;
+            scrollRect.scrollSensitivity = 28f;
 
             for (var i = 0; i < HospitalUpgradesService.Upgrades.Length; i++)
             {
-                CreateUpgradeRow(i, HospitalUpgradesService.Upgrades[i]);
+                CreateUpgradeRow(content.transform, i, HospitalUpgradesService.Upgrades[i]);
             }
 
             Refresh();
@@ -181,19 +211,20 @@ namespace ProjectHospital.AutoLabBalancer
             }
         }
 
-        private void CreateUpgradeRow(int index, HospitalUpgradeDefinition definition)
+        private void CreateUpgradeRow(Transform parent, int index, HospitalUpgradeDefinition definition)
         {
-            var column = index / 6;
-            var row = index % 6;
-            var x = 24f + column * 325f;
-            var y = -62f - row * 54f;
+            var x = 10f;
+            var y = -8f - index * 72f;
 
-            CreateText(_panel.transform, ModText.T(definition.TitleKey), 16, FontStyle.Bold, new Vector2(x, y), new Vector2(210f, 22f));
-            CreateText(_panel.transform, ModText.F("UpgradeEffect", definition.Effect), 11, FontStyle.Normal, new Vector2(x, y - 20f), new Vector2(260f, 20f));
-            _levelTexts.Add(CreateText(_panel.transform, string.Empty, 13, FontStyle.Normal, new Vector2(x + 210f, y), new Vector2(70f, 20f)));
-            _costTexts.Add(CreateText(_panel.transform, string.Empty, 12, FontStyle.Normal, new Vector2(x + 210f, y - 20f), new Vector2(95f, 20f)));
+            CreateText(parent, ModText.T(definition.TitleKey), 17, FontStyle.Bold, new Vector2(x, y), new Vector2(260f, 24f));
+            CreateText(parent, ModText.F("UpgradeEffect", definition.Effect), 12, FontStyle.Normal, new Vector2(x, y - 25f), new Vector2(450f, 34f));
+            _levelTexts.Add(CreateText(parent, string.Empty, 14, FontStyle.Normal, new Vector2(x + 455f, y - 2f), new Vector2(78f, 22f)));
+            _costTexts.Add(CreateText(parent, string.Empty, 12, FontStyle.Normal, new Vector2(x + 455f, y - 26f), new Vector2(120f, 22f)));
 
-            var button = CreateButton(_panel.transform, ModText.T("UpgradeBuy"), new Vector2(x + 270f, y - 10f), new Vector2(48f, 28f));
+            var button = CreateButton(parent, ModText.T("UpgradeBuy"), new Vector2(x + 580f, y - 13f), new Vector2(58f, 32f));
+            var tooltip = button.gameObject.AddComponent<HospitalUpgradeTooltip>();
+            tooltip.Init(this, definition);
+            _buttons.Add(button);
             button.onClick.AddListener(delegate
             {
                 string message;
@@ -213,7 +244,13 @@ namespace ProjectHospital.AutoLabBalancer
                 _costTexts[i].text = level >= HospitalUpgradesService.MaxLevel
                     ? ModText.T("UpgradeMax")
                     : ModText.F("UpgradeCost", HospitalUpgradesService.GetNextCost(definition));
+                _buttons[i].interactable = level < HospitalUpgradesService.MaxLevel;
             }
+        }
+
+        public void ShowUpgradeDetails(HospitalUpgradeDefinition definition)
+        {
+            _message.text = ModText.T(definition.TitleKey) + " | " + ModText.F("UpgradeEffect", definition.Effect);
         }
 
         private Text CreateText(Transform parent, string text, int size, FontStyle style, Vector2 anchoredPosition, Vector2 sizeDelta)
@@ -262,6 +299,30 @@ namespace ProjectHospital.AutoLabBalancer
             text.color = Color.white;
             text.alignment = TextAnchor.MiddleCenter;
             return button;
+        }
+    }
+
+    internal sealed class HospitalUpgradeTooltip : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler
+    {
+        private HospitalUpgradesNativePanel _panel;
+        private HospitalUpgradeDefinition _definition;
+
+        public void Init(HospitalUpgradesNativePanel panel, HospitalUpgradeDefinition definition)
+        {
+            _panel = panel;
+            _definition = definition;
+        }
+
+        public void OnPointerEnter(PointerEventData eventData)
+        {
+            if (_panel != null && _definition != null)
+            {
+                _panel.ShowUpgradeDetails(_definition);
+            }
+        }
+
+        public void OnPointerExit(PointerEventData eventData)
+        {
         }
     }
 
@@ -316,17 +377,18 @@ namespace ProjectHospital.AutoLabBalancer
                 rect.anchorMax = lastRect.anchorMax;
                 rect.pivot = lastRect.pivot;
                 rect.sizeDelta = lastRect.sizeDelta;
-                rect.anchoredPosition = lastRect.anchoredPosition + new Vector2(42f, 0f);
+                rect.anchoredPosition = lastRect.anchoredPosition + new Vector2(58f, 0f);
             }
             else
             {
-                button.transform.localPosition = lastButton.transform.localPosition + new Vector3(42f, 0f, 0f);
+                button.transform.localPosition = lastButton.transform.localPosition + new Vector3(58f, 0f, 0f);
             }
 
             var icon = button.GetComponent<IconButtonController>();
             if (icon != null)
             {
                 icon.RemoveOnClickDelegate();
+                icon.SetTextLocID(ModText.T("UpgradesTab"), true);
                 icon.SetToolTipTextParameters(new[] { ModText.T("UpgradesTab") });
                 icon.SetOnClickedDelegate(delegate { Show(controller); });
             }
@@ -342,6 +404,13 @@ namespace ProjectHospital.AutoLabBalancer
             if (activeTab != null)
             {
                 activeTab.SetActive(false);
+            }
+
+            var sheet = ReflectionHelpers.GetField(controller, "m_textCurrentSheet") as GameObject;
+            var text = sheet == null ? null : sheet.GetComponent<Text>();
+            if (text != null)
+            {
+                text.text = ModText.T("UpgradesTab");
             }
 
             HospitalUpgradesNativePanel panel;
