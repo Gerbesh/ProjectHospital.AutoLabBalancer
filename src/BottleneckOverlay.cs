@@ -366,8 +366,8 @@ namespace ProjectHospital.AutoLabBalancer
 
         private static object GetPatientDepartment(object patientEntity)
         {
-            var hospitalization = ReflectionHelpers.GetComponentByTypeName(patientEntity, "Lopital.HospitalizationComponent");
-            var state = ReflectionHelpers.GetField(hospitalization, "m_state");
+            var patient = ReflectionHelpers.GetComponentByTypeName(patientEntity, "Lopital.BehaviorPatient");
+            var state = ReflectionHelpers.GetField(patient, "m_state");
             return ReflectionHelpers.ResolvePointer(ReflectionHelpers.GetField(state, "m_department"));
         }
 
