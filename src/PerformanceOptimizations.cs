@@ -316,7 +316,12 @@ namespace ProjectHospital.AutoLabBalancer
         }
     }
 
-    [HarmonyPatch]
+    /*
+     * Disabled for 0.13.1: HarmonyX rejects this multi-target patch when the
+     * patch method asks for __args. The rest of the optimization layer should
+     * still load, so object search caching will be reintroduced via explicit
+     * per-overload patches instead of PatchAll attributes.
+     */
     internal static class ObjectSearchCachePatch
     {
         private static IEnumerable<MethodBase> TargetMethods()
