@@ -16,7 +16,7 @@ namespace ProjectHospital.AutoLabBalancer
     {
         public const string PluginGuid = "local.projecthospital.autolabbalancer";
         public const string PluginName = "Project Hospital Productivity Tweaks";
-        public const string PluginVersion = "0.13.1";
+        public const string PluginVersion = "0.13.2";
 
         private AutoLabBalancerConfig _config;
         private Harmony _harmony;
@@ -248,6 +248,7 @@ namespace ProjectHospital.AutoLabBalancer
             DrawToggle(_config.EnablePerformanceProfiler, ModText.T("EnablePerformanceProfiler"));
             DrawToggle(_config.ProfilerAutoResetAfterLog, ModText.T("ProfilerAutoResetAfterLog"));
             DrawToggle(_config.EnablePerformanceOptimizations, ModText.T("EnablePerformanceOptimizations"));
+            DrawToggle(_config.EnableNurseTaskBoard, ModText.T("EnableNurseTaskBoard"));
             GUILayout.Space(8f);
             GUILayout.Label(ModText.T("IntakeControl"));
             DrawToggle(_config.EnableIntakeControl, ModText.T("EnableIntakeControl"));
@@ -472,6 +473,8 @@ namespace ProjectHospital.AutoLabBalancer
         public ConfigEntry<float> ReservationNegativeCacheTtlSeconds { get; private set; }
         public ConfigEntry<bool> EnableNurseIdleBackoff { get; private set; }
         public ConfigEntry<float> NurseIdleBackoffSeconds { get; private set; }
+        public ConfigEntry<bool> EnableNurseTaskBoard { get; private set; }
+        public ConfigEntry<float> NurseTaskBoardTtlSeconds { get; private set; }
         public ConfigEntry<bool> EnableOutpatientQueueBackoff { get; private set; }
         public ConfigEntry<float> OutpatientQueueBackoffSeconds { get; private set; }
         public ConfigFile SourceConfig { get; private set; }
@@ -542,6 +545,8 @@ namespace ProjectHospital.AutoLabBalancer
                 ReservationNegativeCacheTtlSeconds = config.Bind("PerformanceOptimizations", "ReservationNegativeCacheTtlSeconds", 0.35f, "TTL for failed reservation cache entries."),
                 EnableNurseIdleBackoff = config.Bind("PerformanceOptimizations", "EnableNurseIdleBackoff", true, "Throttle repeated nurse idle scans when a nurse remains free and unreserved."),
                 NurseIdleBackoffSeconds = config.Bind("PerformanceOptimizations", "NurseIdleBackoffSeconds", 0.15f, "Backoff duration for repeated nurse idle scans."),
+                EnableNurseTaskBoard = config.Bind("PerformanceOptimizations", "EnableNurseTaskBoard", true, "Build a short-lived department nurse task board and let idle nurses skip expensive scans only when the board has no visible work."),
+                NurseTaskBoardTtlSeconds = config.Bind("PerformanceOptimizations", "NurseTaskBoardTtlSeconds", 0.5f, "TTL for department nurse task board snapshots."),
                 EnableOutpatientQueueBackoff = config.Bind("PerformanceOptimizations", "EnableOutpatientQueueBackoff", true, "Throttle repeated outpatient waiting-room scans."),
                 OutpatientQueueBackoffSeconds = config.Bind("PerformanceOptimizations", "OutpatientQueueBackoffSeconds", 0.15f, "Backoff duration for repeated outpatient waiting-room scans.")
             };

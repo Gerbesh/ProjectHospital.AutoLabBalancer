@@ -15,10 +15,25 @@ namespace ProjectHospital.AutoLabBalancer
         public float ExpiresAt;
     }
 
+    internal sealed class NurseTaskBoardSnapshot
+    {
+        public float ExpiresAt;
+        public int Score;
+        public int Critical;
+        public int Surgery;
+        public int HospitalizedProcedures;
+        public int WaitingPatients;
+        public int Medicine;
+        public int Food;
+        public int Transport;
+        public int Care;
+    }
+
     internal static class PerformanceOptimizationService
     {
         private static readonly Dictionary<string, TimedCacheEntry<TileObject>> ObjectSearchCache = new Dictionary<string, TimedCacheEntry<TileObject>>();
         private static readonly Dictionary<string, TimedCacheEntry<ProcedureSceneAvailability>> ReservationFailureCache = new Dictionary<string, TimedCacheEntry<ProcedureSceneAvailability>>();
+        private static readonly Dictionary<object, NurseTaskBoardSnapshot> NurseBoards = new Dictionary<object, NurseTaskBoardSnapshot>();
         private static readonly Dictionary<object, float> SelectNextStepBackoff = new Dictionary<object, float>();
         private static readonly Dictionary<object, float> NurseIdleBackoff = new Dictionary<object, float>();
         private static readonly Dictionary<object, float> WaitingSittingBackoff = new Dictionary<object, float>();
@@ -44,6 +59,7 @@ namespace ProjectHospital.AutoLabBalancer
             _nextCleanupAt = now + 5f;
             Prune(ObjectSearchCache, now);
             Prune(ReservationFailureCache, now);
+            PruneNurseBoards(now);
             Prune(SelectNextStepBackoff, now);
             Prune(NurseIdleBackoff, now);
             Prune(WaitingSittingBackoff, now);
@@ -158,6 +174,30 @@ namespace ProjectHospital.AutoLabBalancer
 
         public static bool ShouldSkipNurseIdle(object nurse)
         {
+            if (!Enabled || !RuntimeSettings.Config.EnableNurseTaskBoard.Value || nurse == null)
+            {
+                return false;
+            }
+
+            if (!IsNurseIdleCandidate(nurse))
+            {
+                NurseIdleBackoff.Remove(nurse);
+                return false;
+            }
+
+            var department = GetNurseDepartment(nurse);
+            if (department == null)
+            {
+                return false;
+            }
+
+            var board = GetNurseBoard(department);
+            if (board.Score > 0)
+            {
+                NurseIdleBackoff.Remove(nurse);
+                return false;
+            }
+
             return ShouldSkipShortBackoff(nurse, NurseIdleBackoff, RuntimeSettings.Config.EnableNurseIdleBackoff.Value);
         }
 
@@ -170,7 +210,9 @@ namespace ProjectHospital.AutoLabBalancer
 
             var isFree = ReflectionHelpers.InvokeBool(nurse, "IsFree");
             var reserved = ReflectionHelpers.InvokeBool(nurse, "GetReserved");
-            if (isFree && !reserved)
+            var department = GetNurseDepartment(nurse);
+            var board = department == null ? null : GetNurseBoard(department);
+            if (isFree && !reserved && (board == null || board.Score <= 0))
             {
                 NurseIdleBackoff[nurse] = Time.realtimeSinceStartup + Mathf.Max(0.02f, RuntimeSettings.Config.NurseIdleBackoffSeconds.Value);
             }
@@ -200,6 +242,153 @@ namespace ProjectHospital.AutoLabBalancer
 
             float nextAt;
             return backoff.TryGetValue(instance, out nextAt) && Time.realtimeSinceStartup < nextAt;
+        }
+
+        private static bool IsNurseIdleCandidate(object nurse)
+        {
+            if (!ReflectionHelpers.InvokeBool(nurse, "IsFree") || ReflectionHelpers.InvokeBool(nurse, "GetReserved"))
+            {
+                return false;
+            }
+
+            if (GetPropertyOrField(nurse, "CurrentPatient") != null)
+            {
+                return false;
+            }
+
+            var entity = ReflectionHelpers.GetField(nurse, "m_entity");
+            var employee = ReflectionHelpers.GetComponentByTypeName(entity, "Lopital.EmployeeComponent");
+            return employee == null || !ReflectionHelpers.InvokeBool(employee, "IsPerformingAProcedure");
+        }
+
+        private static NurseTaskBoardSnapshot GetNurseBoard(object department)
+        {
+            NurseTaskBoardSnapshot snapshot;
+            var now = Time.realtimeSinceStartup;
+            if (NurseBoards.TryGetValue(department, out snapshot) && now < snapshot.ExpiresAt)
+            {
+                return snapshot;
+            }
+
+            snapshot = BuildNurseBoard(department, now);
+            NurseBoards[department] = snapshot;
+            return snapshot;
+        }
+
+        private static NurseTaskBoardSnapshot BuildNurseBoard(object department, float now)
+        {
+            var snapshot = new NurseTaskBoardSnapshot
+            {
+                ExpiresAt = now + Mathf.Max(0.1f, RuntimeSettings.Config.NurseTaskBoardTtlSeconds.Value)
+            };
+
+            if (ReflectionHelpers.InvokeBool(department, "HasAnyCriticalPatients"))
+            {
+                snapshot.Critical += 1;
+                snapshot.Score += 1000;
+            }
+
+            if (ReflectionHelpers.InvokeBool(department, "HasWaitingSurgery") || ReflectionHelpers.InvokeBool(department, "HasAnyCriticalSurgeryScheduled"))
+            {
+                snapshot.Surgery += 1;
+                snapshot.Score += 500;
+            }
+
+            if (ReflectionHelpers.InvokeBool(department, "HasAnyHospitalizedPatientsWithScheduledProcedures"))
+            {
+                snapshot.HospitalizedProcedures += 1;
+                snapshot.Score += 200;
+            }
+
+            if (ReflectionHelpers.InvokeBool(department, "HasAnyWaitingPatients"))
+            {
+                snapshot.WaitingPatients += 1;
+                snapshot.Score += 25;
+            }
+
+            CountPatientNurseTasks(department, snapshot);
+            return snapshot;
+        }
+
+        private static void CountPatientNurseTasks(object department, NurseTaskBoardSnapshot snapshot)
+        {
+            var hospital = Lopital.Hospital.Instance;
+            if (hospital == null)
+            {
+                return;
+            }
+
+            foreach (var character in ReflectionHelpers.GetEnumerableField(hospital, "m_characters"))
+            {
+                var patient = ReflectionHelpers.GetComponentByTypeName(character, "Lopital.BehaviorPatient");
+                if (patient == null || !ReferenceEquals(GetPatientDepartment(patient), department))
+                {
+                    continue;
+                }
+
+                var hospitalization = ReflectionHelpers.GetComponentByTypeName(character, "Lopital.HospitalizationComponent");
+                var state = hospitalization == null ? null : ReflectionHelpers.GetField(hospitalization, "m_state");
+                if (state == null)
+                {
+                    continue;
+                }
+
+                if (Equals(ReflectionHelpers.GetField(state, "m_medicinePrescribed"), true)
+                    && !Equals(ReflectionHelpers.GetField(state, "m_medicineReceived"), true))
+                {
+                    snapshot.Medicine++;
+                    snapshot.Score += 100;
+                }
+
+                if (Equals(ReflectionHelpers.GetField(state, "m_lunchReady"), true)
+                    && !Equals(ReflectionHelpers.GetField(state, "m_lunchEaten"), true))
+                {
+                    snapshot.Food++;
+                    snapshot.Score += 25;
+                }
+
+                if (Equals(ReflectionHelpers.GetField(state, "m_oustideRoom"), true))
+                {
+                    snapshot.Transport++;
+                    snapshot.Score += 100;
+                }
+
+                if (ReflectionHelpers.InvokeBool(hospitalization, "WillCollapse"))
+                {
+                    snapshot.Care++;
+                    snapshot.Score += 1000;
+                }
+            }
+        }
+
+        private static object GetNurseDepartment(object nurse)
+        {
+            var entity = ReflectionHelpers.GetField(nurse, "m_entity");
+            var employee = ReflectionHelpers.GetComponentByTypeName(entity, "Lopital.EmployeeComponent");
+            var state = ReflectionHelpers.GetField(employee, "m_state");
+            return ReflectionHelpers.ResolvePointer(ReflectionHelpers.GetField(state, "m_department"));
+        }
+
+        private static object GetPatientDepartment(object patient)
+        {
+            var state = ReflectionHelpers.GetField(patient, "m_state");
+            return ReflectionHelpers.ResolvePointer(ReflectionHelpers.GetField(state, "m_department"));
+        }
+
+        private static object GetPropertyOrField(object instance, string name)
+        {
+            if (instance == null)
+            {
+                return null;
+            }
+
+            var property = AccessTools.Property(instance.GetType(), name);
+            if (property != null)
+            {
+                return property.GetValue(instance, null);
+            }
+
+            return ReflectionHelpers.GetField(instance, name);
         }
 
         private static bool IsValidFreeObject(TileObject tileObject)
@@ -312,6 +501,23 @@ namespace ProjectHospital.AutoLabBalancer
             foreach (var key in expired)
             {
                 cache.Remove(key);
+            }
+        }
+
+        private static void PruneNurseBoards(float now)
+        {
+            var expired = new List<object>();
+            foreach (var pair in NurseBoards)
+            {
+                if (now >= pair.Value.ExpiresAt)
+                {
+                    expired.Add(pair.Key);
+                }
+            }
+
+            foreach (var key in expired)
+            {
+                NurseBoards.Remove(key);
             }
         }
     }
