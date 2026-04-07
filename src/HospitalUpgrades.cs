@@ -167,7 +167,7 @@ namespace ProjectHospital.AutoLabBalancer
             rootLayout.padding = new RectOffset(16, 16, 16, 16);
             rootLayout.spacing = 8f;
             rootLayout.childControlWidth = true;
-            rootLayout.childControlHeight = false;
+            rootLayout.childControlHeight = true;
             rootLayout.childForceExpandWidth = true;
             rootLayout.childForceExpandHeight = false;
 
@@ -186,7 +186,10 @@ namespace ProjectHospital.AutoLabBalancer
             var viewport = new GameObject("Viewport");
             viewport.transform.SetParent(_panel.transform, false);
             var viewportRect = viewport.AddComponent<RectTransform>();
-            viewport.AddComponent<LayoutElement>().flexibleHeight = 1f;
+            var viewportElement = viewport.AddComponent<LayoutElement>();
+            viewportElement.minHeight = 320f;
+            viewportElement.preferredHeight = 560f;
+            viewportElement.flexibleHeight = 1f;
             var viewportImage = viewport.AddComponent<Image>();
             viewportImage.color = new Color(1f, 1f, 1f, 0.18f);
             viewport.AddComponent<Mask>().showMaskGraphic = false;
