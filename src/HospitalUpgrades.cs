@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
 using BepInEx.Configuration;
@@ -180,9 +181,16 @@ namespace ProjectHospital.AutoLabBalancer
                 return;
             }
 
+            if (IsAbsurdMovement(walkComponent))
+            {
+                MovementRemainders.Remove(walkComponent);
+                TryApplyAbsurdTeleport(walkComponent);
+                return;
+            }
+
             var desiredExtraSteps = ((multiplier - 1f) * updateCount) + GetMovementRemainder(walkComponent);
             var extraSteps = Math.Max(0, (int)Math.Floor(desiredExtraSteps));
-            extraSteps = Math.Min(extraSteps, IsAbsurdMovement(walkComponent) ? 240 : 24);
+            extraSteps = Math.Min(extraSteps, 24);
             MovementRemainders[walkComponent] = desiredExtraSteps - extraSteps;
             if (extraSteps <= 0)
             {
@@ -206,6 +214,207 @@ namespace ProjectHospital.AutoLabBalancer
                     updateMovement.Invoke(walkComponent, new[] { floor, (object)deltaTime });
                 }
             }
+        }
+
+        private static void TryApplyAbsurdTeleport(object walkComponent)
+        {
+            try
+            {
+                var type = walkComponent.GetType();
+                var state = ReflectionHelpers.GetField(walkComponent, "m_state");
+                if (state == null || ReflectionHelpers.GetField(walkComponent, "m_route") == null)
+                {
+                    return;
+                }
+
+                var destination = ReflectionHelpers.GetField(state, "m_destination");
+                if (destination == null)
+                {
+                    return;
+                }
+
+                var destinationFloor = Convert.ToInt32(ReflectionHelpers.GetField(state, "m_destinationFloor"));
+                var targetFloor = GetFloorByIndex(destinationFloor);
+                if (targetFloor != null)
+                {
+                    MoveAttachedMovingObjectsToFloor(walkComponent, targetFloor, destinationFloor);
+                    SetField(walkComponent, "m_floor", targetFloor);
+                    SetProperty(walkComponent, "Floor", targetFloor);
+                }
+
+                SetField(walkComponent, "m_route", null);
+                SetField(state, "m_routeIndex", 0);
+                SetField(state, "m_currentPosition", destination);
+                SetField(state, "m_nextPosition", destination);
+                SetField(state, "m_walkMidpoint1", null);
+                SetField(state, "m_walkMidpoint2", null);
+                SetField(state, "m_worldPosition", new Vector3(GetVectorField(destination, "m_x"), GetVectorField(destination, "m_y"), -0.15f));
+
+                if (ReflectionHelpers.GetField(state, "m_objectToSitOn") != null)
+                {
+                    InvokeNoArgs(type, walkComponent, "SitDown");
+                }
+                else
+                {
+                    SwitchWalkState(walkComponent, "Idle");
+                }
+
+                MarkEntityDirty(walkComponent);
+            }
+            catch (Exception ex)
+            {
+                if (RuntimeSettings.Config.EnableDebugLog.Value && RuntimeSettings.Logger != null)
+                {
+                    RuntimeSettings.Logger.LogWarning("[HospitalUpgrades] Absurd teleport failed: " + ex.Message);
+                }
+            }
+        }
+
+        private static object GetFloorByIndex(int floorIndex)
+        {
+            if (floorIndex < 0 || Lopital.Hospital.Instance == null)
+            {
+                return null;
+            }
+
+            var floors = ReflectionHelpers.GetField(Lopital.Hospital.Instance, "m_floors") as IList;
+            return floors != null && floorIndex < floors.Count ? floors[floorIndex] : null;
+        }
+
+        private static void MoveAttachedMovingObjectsToFloor(object walkComponent, object targetFloor, int targetFloorIndex)
+        {
+            var entity = ReflectionHelpers.GetField(walkComponent, "m_entity");
+            var sourceFloor = ReflectionHelpers.GetField(walkComponent, "m_floor");
+            if (entity == null || sourceFloor == null || targetFloor == null || ReferenceEquals(sourceFloor, targetFloor))
+            {
+                return;
+            }
+
+            var sourceObjects = ReflectionHelpers.GetField(sourceFloor, "m_movingObjects") as IList;
+            var targetObjects = ReflectionHelpers.GetField(targetFloor, "m_movingObjects") as IList;
+            if (sourceObjects == null || targetObjects == null)
+            {
+                return;
+            }
+
+            var attached = new List<object>();
+            foreach (var item in sourceObjects)
+            {
+                if (item != null && IsAttachedToEntity(item, entity))
+                {
+                    attached.Add(item);
+                }
+            }
+
+            foreach (var item in attached)
+            {
+                sourceObjects.Remove(item);
+                if (!targetObjects.Contains(item))
+                {
+                    targetObjects.Add(item);
+                }
+
+                var state = ReflectionHelpers.GetField(item, "m_state");
+                SetField(state, "m_floorIndex", targetFloorIndex);
+            }
+        }
+
+        private static bool IsAttachedToEntity(object movingObject, object entity)
+        {
+            var isAttached = AccessTools.Method(movingObject.GetType(), "IsAttachedToCharacter", Type.EmptyTypes);
+            if (isAttached == null || !Equals(isAttached.Invoke(movingObject, null), true))
+            {
+                return false;
+            }
+
+            var user = GetPropertyOrField(movingObject, "User");
+            return ReferenceEquals(user, entity);
+        }
+
+        private static object GetPropertyOrField(object instance, string name)
+        {
+            if (instance == null)
+            {
+                return null;
+            }
+
+            var property = AccessTools.Property(instance.GetType(), name);
+            if (property != null)
+            {
+                return property.GetValue(instance, null);
+            }
+
+            return ReflectionHelpers.GetField(instance, name);
+        }
+
+        private static void SwitchWalkState(object walkComponent, string stateName)
+        {
+            var stateType = AccessTools.TypeByName("Lopital.WalkState");
+            var switchState = stateType == null ? null : AccessTools.Method(walkComponent.GetType(), "SwitchState", new[] { stateType });
+            if (switchState == null)
+            {
+                return;
+            }
+
+            switchState.Invoke(walkComponent, new[] { Enum.Parse(stateType, stateName) });
+        }
+
+        private static void MarkEntityDirty(object walkComponent)
+        {
+            var entity = ReflectionHelpers.GetField(walkComponent, "m_entity");
+            var setDirty = entity == null ? null : AccessTools.Method(entity.GetType(), "SetDirty", new[] { typeof(bool) });
+            if (setDirty != null)
+            {
+                setDirty.Invoke(entity, new object[] { true });
+            }
+        }
+
+        private static void InvokeNoArgs(Type type, object instance, string methodName)
+        {
+            var method = AccessTools.Method(type, methodName, Type.EmptyTypes);
+            if (method != null)
+            {
+                method.Invoke(instance, null);
+            }
+        }
+
+        private static void SetProperty(object instance, string propertyName, object value)
+        {
+            if (instance == null)
+            {
+                return;
+            }
+
+            var property = AccessTools.Property(instance.GetType(), propertyName);
+            if (property != null && property.GetSetMethod(true) != null)
+            {
+                property.SetValue(instance, value, null);
+            }
+        }
+
+        private static void SetField(object instance, string fieldName, object value)
+        {
+            if (instance == null)
+            {
+                return;
+            }
+
+            var field = AccessTools.Field(instance.GetType(), fieldName);
+            if (field != null)
+            {
+                field.SetValue(instance, value);
+            }
+        }
+
+        private static float GetVectorField(object vector, string fieldName)
+        {
+            if (vector == null)
+            {
+                return 0f;
+            }
+
+            var value = ReflectionHelpers.GetField(vector, fieldName);
+            return value == null ? 0f : Convert.ToSingle(value);
         }
 
         public static void ApplyInsurancePayoutMultiplier(ref int amount, object category)

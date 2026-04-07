@@ -233,10 +233,27 @@ Require-Method "Lopital.MapScriptInterface" "FindFirstDirtyTileZigZag" @("Lopita
 Require-Method "Lopital.MapScriptInterface" "CleanTile" @("GLib.Vector2i", "System.Int32") | Out-Null
 Require-Method "Lopital.WalkComponent" "UpdateMovement" @("Lopital.Floor", "System.Single") "Lopital.MovementResult" | Out-Null
 Require-Method "Lopital.WalkComponent" "MultiUpdate" @("System.Int32", "System.Single") | Out-Null
+Require-Method "Lopital.WalkComponent" "SwitchState" @("Lopital.WalkState") | Out-Null
+Require-Method "Lopital.WalkComponent" "SitDown" @() | Out-Null
+Require-Method "Lopital.WalkComponent" "ForceWorldPosition" @("System.Single", "System.Single") | Out-Null
+Require-Property "Lopital.WalkComponent" "Floor" | Out-Null
 Require-Field "Lopital.WalkComponent" "m_state" | Out-Null
 Require-Field "Lopital.WalkComponent" "m_floor" | Out-Null
 Require-Field "Lopital.WalkComponent" "m_route" | Out-Null
+Require-Field "Lopital.WalkComponentPersistentData" "m_destination" | Out-Null
+Require-Field "Lopital.WalkComponentPersistentData" "m_destinationFloor" | Out-Null
+Require-Field "Lopital.WalkComponentPersistentData" "m_currentPosition" | Out-Null
+Require-Field "Lopital.WalkComponentPersistentData" "m_nextPosition" | Out-Null
+Require-Field "Lopital.WalkComponentPersistentData" "m_worldPosition" | Out-Null
+Require-Field "Lopital.WalkComponentPersistentData" "m_routeIndex" | Out-Null
+Require-Field "Lopital.WalkComponentPersistentData" "m_walkMidpoint1" | Out-Null
+Require-Field "Lopital.WalkComponentPersistentData" "m_walkMidpoint2" | Out-Null
+Require-Field "Lopital.WalkComponentPersistentData" "m_objectToSitOn" | Out-Null
 Require-Field "Lopital.WalkComponentPersistentData" "m_movementType" | Out-Null
+Require-Field "Lopital.Floor" "m_movingObjects" | Out-Null
+Require-Method "Lopital.TileObject" "IsAttachedToCharacter" @() "System.Boolean" | Out-Null
+Require-Property "Lopital.TileObject" "User" | Out-Null
+Require-Field "Lopital.TileObjectPersistentData" "m_floorIndex" | Out-Null
 Write-Host "Section: Performance profiler targets"
 Require-Method "Lopital.ProcedureManager" "Update" @("System.Int32") | Out-Null
 Require-Method "Lopital.HospitalizationComponent" "Update" @("System.Single") | Out-Null
