@@ -16,7 +16,7 @@ namespace ProjectHospital.AutoLabBalancer
     {
         public const string PluginGuid = "local.projecthospital.autolabbalancer";
         public const string PluginName = "Project Hospital Productivity Tweaks";
-        public const string PluginVersion = "0.9.4";
+        public const string PluginVersion = "0.9.5";
 
         private AutoLabBalancerConfig _config;
         private Harmony _harmony;
@@ -227,6 +227,7 @@ namespace ProjectHospital.AutoLabBalancer
             DrawToggle(_config.EnableEmergencyRunSpeedBoost, ModText.T("EmergencyRunSpeedBoost"));
             DrawToggle(_config.EnableNurseAssistedORCleanup, ModText.T("NurseAssistedOrCleanup"));
             DrawToggle(_config.EnableEquipmentReferral, ModText.T("EquipmentReferral"));
+            DrawToggle(_config.EnableUnsupportedDiagnosisReferral, ModText.T("UnsupportedDiagnosisReferral"));
             DrawToggle(_config.EnableManualReferralPayment, ModText.T("ManualReferralPayment"));
             DrawToggle(_config.EnableDebugProductivityLog, ModText.T("ProductivityDebugLog"));
             DrawToggle(_config.EnableBottleneckOverlay, ModText.T("ShowBottleneckOverlay"));
@@ -255,6 +256,8 @@ namespace ProjectHospital.AutoLabBalancer
             GUILayout.Label(ModText.T("EmergencySpeedBoosts") + RuntimeCounters.EmergencySpeedBoosts);
             GUILayout.Label(ModText.T("EquipmentReferrals") + RuntimeCounters.EquipmentReferrals);
             GUILayout.Label(ModText.T("ReferralIncome") + RuntimeCounters.EquipmentReferralIncome);
+            GUILayout.Label(ModText.T("UnsupportedDiagnosisReferrals") + RuntimeCounters.UnsupportedDiagnosisReferrals);
+            GUILayout.Label(ModText.T("UnsupportedDiagnosisIncome") + RuntimeCounters.UnsupportedDiagnosisReferralIncome);
             GUILayout.Label(ModText.T("ManualReferralPayments") + RuntimeCounters.ManualReferralPayments);
             GUILayout.Label(ModText.T("ManualReferralIncome") + RuntimeCounters.ManualReferralIncome);
             GUILayout.EndVertical();
@@ -393,6 +396,10 @@ namespace ProjectHospital.AutoLabBalancer
         public ConfigEntry<int> EquipmentReferralPaymentPercent { get; private set; }
         public ConfigEntry<bool> EnableManualReferralPayment { get; private set; }
         public ConfigEntry<int> ManualReferralPaymentPercent { get; private set; }
+        public ConfigEntry<bool> EnableUnsupportedDiagnosisReferral { get; private set; }
+        public ConfigEntry<int> UnsupportedDiagnosisReferralPaymentPercent { get; private set; }
+        public ConfigEntry<bool> ReferUnsupportedIfDepartmentMissing { get; private set; }
+        public ConfigEntry<bool> ReferUnsupportedIfNoProfileDoctor { get; private set; }
         public ConfigEntry<bool> EquipmentReferralDebugLog { get; private set; }
         public ConfigEntry<bool> EnableIntakeControl { get; private set; }
         public ConfigEntry<bool> EnableDynamicIntakeByDoctors { get; private set; }
@@ -438,6 +445,10 @@ namespace ProjectHospital.AutoLabBalancer
                 EquipmentReferralPaymentPercent = config.Bind("Referral", "EquipmentReferralPaymentPercent", 20, "Percent of the patient's expected insurance payment paid for equipment-blocked referrals."),
                 EnableManualReferralPayment = config.Bind("Referral", "EnableManualReferralPayment", true, "Pay a small partial fee when the player manually sends an untreated patient to another hospital."),
                 ManualReferralPaymentPercent = config.Bind("Referral", "ManualReferralPaymentPercent", 10, "Percent of the patient's expected insurance payment paid for player-triggered untreated referrals."),
+                EnableUnsupportedDiagnosisReferral = config.Bind("Referral", "EnableUnsupportedDiagnosisReferral", false, "After diagnosis, refer unsupported outpatient diagnoses to another hospital if the profile department or doctor is unavailable."),
+                UnsupportedDiagnosisReferralPaymentPercent = config.Bind("Referral", "UnsupportedDiagnosisReferralPaymentPercent", 10, "Percent of the patient's expected insurance payment paid for unsupported-diagnosis referrals."),
+                ReferUnsupportedIfDepartmentMissing = config.Bind("Referral", "ReferUnsupportedIfDepartmentMissing", true, "Refer diagnosed outpatients when the diagnosis profile department is not active or has no working clinic."),
+                ReferUnsupportedIfNoProfileDoctor = config.Bind("Referral", "ReferUnsupportedIfNoProfileDoctor", true, "Refer diagnosed outpatients when no currently available doctor is found in the diagnosis profile department."),
                 EquipmentReferralDebugLog = config.Bind("Referral", "EquipmentReferralDebugLog", false, "Write detailed equipment referral decisions."),
                 EnableIntakeControl = config.Bind("IntakeControl", "EnableIntakeControl", false, "When true, cap today's insurance patient intake after vanilla insurance calculation. Disabled by default."),
                 EnableDynamicIntakeByDoctors = config.Bind("IntakeControl", "EnableDynamicIntakeByDoctors", true, "Calculate intake capacity from available outpatient doctors."),
@@ -480,6 +491,8 @@ namespace ProjectHospital.AutoLabBalancer
         public static int EmergencySpeedBoosts;
         public static int EquipmentReferrals;
         public static int EquipmentReferralIncome;
+        public static int UnsupportedDiagnosisReferrals;
+        public static int UnsupportedDiagnosisReferralIncome;
         public static int ManualReferralPayments;
         public static int ManualReferralIncome;
     }

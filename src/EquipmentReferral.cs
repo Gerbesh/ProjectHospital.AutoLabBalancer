@@ -130,6 +130,74 @@ namespace ProjectHospital.AutoLabBalancer
             }
         }
 
+        public static bool TryReferUnsupportedDiagnosedPatient(Lopital.BehaviorPatient patient)
+        {
+            if (patient == null
+                || RuntimeSettings.Config == null
+                || !RuntimeSettings.Config.Enabled.Value
+                || !RuntimeSettings.Config.EnableUnsupportedDiagnosisReferral.Value)
+            {
+                return false;
+            }
+
+            try
+            {
+                var state = ReflectionHelpers.GetField(patient, "m_state");
+                if (state == null
+                    || Equals(ReflectionHelpers.GetField(state, "m_sentAway"), true)
+                    || Equals(ReflectionHelpers.GetField(state, "m_sentHome"), true)
+                    || Equals(ReflectionHelpers.GetField(state, "m_deathTriggered"), true))
+                {
+                    return false;
+                }
+
+                var entity = ReflectionHelpers.GetField(patient, "m_entity") as GLib.Entity;
+                if (IsHospitalized(entity))
+                {
+                    return false;
+                }
+
+                var medicalCondition = ReflectionHelpers.GetField(state, "m_medicalCondition") as Lopital.MedicalCondition;
+                var diagnosedCondition = GetDiagnosedMedicalCondition(medicalCondition);
+                if (diagnosedCondition == null)
+                {
+                    return false;
+                }
+
+                var profileDepartmentType = GetDiagnosisDepartmentType(diagnosedCondition);
+                if (profileDepartmentType == null || Lopital.MapScriptInterface.Instance == null)
+                {
+                    return false;
+                }
+
+                var profileDepartment = Lopital.MapScriptInterface.Instance.GetDepartmentOfType(profileDepartmentType);
+                string reason = null;
+                if (RuntimeSettings.Config.ReferUnsupportedIfDepartmentMissing.Value
+                    && (profileDepartment == null || !ReflectionHelpers.InvokeBool(profileDepartment, "HasWorkingClinic")))
+                {
+                    reason = "profile department unavailable";
+                }
+                else if (RuntimeSettings.Config.ReferUnsupportedIfNoProfileDoctor.Value
+                    && profileDepartment != null
+                    && !HasAvailableProfileDoctor(profileDepartment))
+                {
+                    reason = "no available profile doctor";
+                }
+
+                if (reason == null)
+                {
+                    return false;
+                }
+
+                return ReferUnsupportedPatient(patient, diagnosedCondition, reason);
+            }
+            catch (Exception ex)
+            {
+                LogError("Unsupported diagnosis referral check failed: " + ex);
+                return false;
+            }
+        }
+
         private static bool ReferPatient(
             Lopital.BehaviorPatient patient,
             GameDBExamination blockedExamination,
@@ -174,6 +242,39 @@ namespace ProjectHospital.AutoLabBalancer
                 + ", reason=" + reason + ".");
 
             InvokeLeave(patient, hospitalized);
+            return true;
+        }
+
+        private static bool ReferUnsupportedPatient(Lopital.BehaviorPatient patient, GameDBMedicalCondition diagnosedCondition, string reason)
+        {
+            var state = ReflectionHelpers.GetField(patient, "m_state");
+            if (state == null)
+            {
+                return false;
+            }
+
+            var entity = ReflectionHelpers.GetField(patient, "m_entity") as GLib.Entity;
+            var department = ReflectionHelpers.ResolvePointer(ReflectionHelpers.GetField(state, "m_department")) as Lopital.Department;
+            var payment = CalculateReferralPayment(state, RuntimeSettings.Config.UnsupportedDiagnosisReferralPaymentPercent.Value);
+            if (payment > 0)
+            {
+                Pay(entity, department, false, payment);
+                RuntimeCounters.UnsupportedDiagnosisReferralIncome += payment;
+            }
+
+            SetField(state, "m_sentAway", true);
+            SetField(state, "m_sentHome", false);
+            SetField(state, "m_untreated", false);
+            SetField(state, "m_waitingForPlayer", false);
+            SetField(state, "m_bookmarked", false);
+            TryClearBookmark(entity);
+
+            RuntimeCounters.UnsupportedDiagnosisReferrals++;
+            Debug("Referred unsupported diagnosed outpatient to another hospital. Payment=" + payment
+                + ", diagnosis=" + DescribeEntry(diagnosedCondition)
+                + ", reason=" + reason + ".");
+
+            InvokeLeave(patient, false);
             return true;
         }
 
@@ -311,6 +412,45 @@ namespace ProjectHospital.AutoLabBalancer
             return ReflectionHelpers.ResolvePointer(ReflectionHelpers.GetField(medicalCondition, "m_diagnosedMedicalCondition")) != null;
         }
 
+        private static GameDBMedicalCondition GetDiagnosedMedicalCondition(Lopital.MedicalCondition medicalCondition)
+        {
+            return ReflectionHelpers.ResolvePointer(ReflectionHelpers.GetField(medicalCondition, "m_diagnosedMedicalCondition")) as GameDBMedicalCondition;
+        }
+
+        private static GameDBDepartment GetDiagnosisDepartmentType(GameDBMedicalCondition diagnosis)
+        {
+            var property = diagnosis == null ? null : diagnosis.GetType().GetProperty("DepartmentRef", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+            var departmentRef = property == null ? null : property.GetValue(diagnosis, null);
+            return ReflectionHelpers.ResolvePointer(departmentRef) as GameDBDepartment;
+        }
+
+        private static bool HasAvailableProfileDoctor(Lopital.Department department)
+        {
+            if (department == null || Lopital.Hospital.Instance == null)
+            {
+                return false;
+            }
+
+            foreach (var character in ReflectionHelpers.GetEnumerableField(Lopital.Hospital.Instance, "m_characters"))
+            {
+                var doctor = ReflectionHelpers.GetComponentByTypeName(character, "Lopital.BehaviorDoctor");
+                var employee = ReflectionHelpers.GetComponentByTypeName(character, "Lopital.EmployeeComponent");
+                if (doctor == null || employee == null)
+                {
+                    continue;
+                }
+
+                var employeeDepartment = ReflectionHelpers.ResolvePointer(ReflectionHelpers.GetField(ReflectionHelpers.GetField(employee, "m_state"), "m_department"));
+                if (ReferenceEquals(employeeDepartment, department)
+                    && ReflectionHelpers.InvokeBool(employee, "IsAvailable"))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         private static int CalculateReferralPayment(object patientState, int percent)
         {
             if (percent <= 0)
@@ -387,6 +527,13 @@ namespace ProjectHospital.AutoLabBalancer
             return examination == null ? "<unknown>" : examination.DatabaseID.ToString();
         }
 
+        private static string DescribeEntry(object entry)
+        {
+            var property = entry == null ? null : entry.GetType().GetProperty("DatabaseID", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+            var value = property == null ? null : property.GetValue(entry, null);
+            return value == null ? "<unknown>" : value.ToString();
+        }
+
         private static bool IsEnabled()
         {
             return RuntimeSettings.Config != null
@@ -428,6 +575,24 @@ namespace ProjectHospital.AutoLabBalancer
         private static void Postfix(Lopital.BehaviorPatient __instance, bool __result)
         {
             EquipmentReferralService.TryReferAfterSchedulingFailure(__instance, __result);
+        }
+    }
+
+    [HarmonyPatch(typeof(Lopital.BehaviorPatient), "Diagnose", new[] { typeof(int), typeof(bool) })]
+    internal static class UnsupportedDiagnosisReferralDiagnosePatch
+    {
+        private static void Postfix(Lopital.BehaviorPatient __instance)
+        {
+            EquipmentReferralService.TryReferUnsupportedDiagnosedPatient(__instance);
+        }
+    }
+
+    [HarmonyPatch(typeof(Lopital.BehaviorPatient), "DiagnoseNow")]
+    internal static class UnsupportedDiagnosisReferralDiagnoseNowPatch
+    {
+        private static void Postfix(Lopital.BehaviorPatient __instance)
+        {
+            EquipmentReferralService.TryReferUnsupportedDiagnosedPatient(__instance);
         }
     }
 

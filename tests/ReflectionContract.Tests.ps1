@@ -264,6 +264,8 @@ Write-Host "Section: Referrals"
 Require-Method "Lopital.BehaviorPatient" "TryToStartScheduledExamination" @() | Out-Null
 Require-Method "Lopital.BehaviorPatient" "TryToScheduleExamination" @("System.Boolean") "System.Boolean" | Out-Null
 Require-Method "Lopital.BehaviorPatient" "Leave" @("System.Boolean", "System.Boolean", "System.Boolean") | Out-Null
+Require-Method "Lopital.BehaviorPatient" "Diagnose" @("System.Int32", "System.Boolean") "Lopital.DiagnosisResult" | Out-Null
+Require-Method "Lopital.BehaviorPatient" "DiagnoseNow" @() | Out-Null
 Require-Method "Lopital.HospitalizationComponent" "IsHospitalized" @() "System.Boolean" | Out-Null
 Require-Property "GameDBExamination" "Procedure" "GameDBProcedure" | Out-Null
 Require-Field "Lopital.BehaviorPatientStateData" "m_medicalCondition" | Out-Null
@@ -272,8 +274,12 @@ Require-Field "Lopital.BehaviorPatientStateData" "m_untreated" | Out-Null
 Require-Field "Lopital.BehaviorPatientStateData" "m_waitingForPlayer" | Out-Null
 Require-Field "Lopital.BehaviorPatientStateData" "m_bookmarked" | Out-Null
 Require-Field "Lopital.MedicalCondition" "m_gameDBMedicalCondition" | Out-Null
+Require-Field "Lopital.MedicalCondition" "m_diagnosedMedicalCondition" | Out-Null
 Require-Property "GameDBMedicalCondition" "InsurancePayment" | Out-Null
+Require-Property "GameDBMedicalCondition" "DepartmentRef" | Out-Null
 Require-Method "Lopital.Department" "Pay" @("System.Int32", "Lopital.PaymentCategory", "GLib.Entity") | Out-Null
+Require-Method "Lopital.Department" "HasWorkingClinic" @() "System.Boolean" | Out-Null
+Require-Method "Lopital.MapScriptInterface" "GetDepartmentOfType" @("GameDBDepartment") "Lopital.Department" | Out-Null
 Require-Method "CharacterPanelPatientPanelController" "SendPatientToAnotherHospital" @() | Out-Null
 Require-AnyMethod "CharacterPanelPatientPanelController" "IsPatientTreated" | Out-Null
 
