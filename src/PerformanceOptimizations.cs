@@ -67,13 +67,18 @@ namespace ProjectHospital.AutoLabBalancer
 
         public static bool TryGetCachedObjectSearch(MethodBase method, object[] args, ref TileObject result)
         {
+            return TryGetCachedObjectSearch(method == null ? "unknown" : method.DeclaringType.FullName + "." + method.Name + "#" + method.GetParameters().Length, args, ref result);
+        }
+
+        public static bool TryGetCachedObjectSearch(string methodKey, object[] args, ref TileObject result)
+        {
             if (!Enabled || !RuntimeSettings.Config.EnableObjectSearchCache.Value)
             {
                 return false;
             }
 
             TimedCacheEntry<TileObject> entry;
-            if (!ObjectSearchCache.TryGetValue(BuildKey(method, args), out entry) || Time.realtimeSinceStartup >= entry.ExpiresAt)
+            if (!ObjectSearchCache.TryGetValue(BuildKey(methodKey, args), out entry) || Time.realtimeSinceStartup >= entry.ExpiresAt)
             {
                 return false;
             }
@@ -89,12 +94,17 @@ namespace ProjectHospital.AutoLabBalancer
 
         public static void StoreObjectSearch(MethodBase method, object[] args, TileObject result)
         {
+            StoreObjectSearch(method == null ? "unknown" : method.DeclaringType.FullName + "." + method.Name + "#" + method.GetParameters().Length, args, result);
+        }
+
+        public static void StoreObjectSearch(string methodKey, object[] args, TileObject result)
+        {
             if (!Enabled || !RuntimeSettings.Config.EnableObjectSearchCache.Value || !IsValidFreeObject(result))
             {
                 return;
             }
 
-            ObjectSearchCache[BuildKey(method, args)] = new TimedCacheEntry<TileObject>
+            ObjectSearchCache[BuildKey(methodKey, args)] = new TimedCacheEntry<TileObject>
             {
                 Value = result,
                 ExpiresAt = Time.realtimeSinceStartup + Mathf.Max(0.1f, RuntimeSettings.Config.ObjectSearchCacheTtlSeconds.Value)
@@ -417,7 +427,12 @@ namespace ProjectHospital.AutoLabBalancer
 
         private static string BuildKey(MethodBase method, object[] args)
         {
-            var key = (method == null ? "unknown" : method.DeclaringType.FullName + "." + method.Name + "#" + method.GetParameters().Length);
+            return BuildKey(method == null ? "unknown" : method.DeclaringType.FullName + "." + method.Name + "#" + method.GetParameters().Length, args);
+        }
+
+        private static string BuildKey(string methodKey, object[] args)
+        {
+            var key = methodKey ?? "unknown";
             if (args == null)
             {
                 return key;
@@ -522,40 +537,129 @@ namespace ProjectHospital.AutoLabBalancer
         }
     }
 
-    /*
-     * Disabled for 0.13.1: HarmonyX rejects this multi-target patch when the
-     * patch method asks for __args. The rest of the optimization layer should
-     * still load, so object search caching will be reintroduced via explicit
-     * per-overload patches instead of PatchAll attributes.
-     */
-    internal static class ObjectSearchCachePatch
+    [HarmonyPatch]
+    internal static class ObjectSearchCacheTagsEntityPatch
     {
-        private static IEnumerable<MethodBase> TargetMethods()
+        private const string Key = "MapScriptInterface.FindClosestFreeObjectWithTags#entity";
+
+        private static MethodBase TargetMethod()
         {
             var type = AccessTools.TypeByName("Lopital.MapScriptInterface");
-            if (type == null)
+            return type == null ? null : AccessTools.Method(type, "FindClosestFreeObjectWithTags", new[]
             {
-                yield break;
-            }
-
-            foreach (var method in type.GetMethods(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic))
-            {
-                if ((method.Name == "FindClosestFreeObjectWithTags" || method.Name == "FindClosestFreeObjectWithTag")
-                    && method.ReturnType == typeof(TileObject))
-                {
-                    yield return method;
-                }
-            }
+                typeof(Entity),
+                typeof(Entity),
+                typeof(Vector2i),
+                typeof(Room),
+                typeof(string[]),
+                typeof(AccessRights),
+                typeof(bool),
+                typeof(DatabaseEntryRef<GameDBRoomType>[]),
+                typeof(bool)
+            });
         }
 
-        private static bool Prefix(MethodBase __originalMethod, object[] __args, ref TileObject __result)
+        private static bool Prefix(Entity ignoredUser, Entity ignoredOwner, Vector2i position, Room room, string[] tags, AccessRights accessRights, bool needsToBeFree, DatabaseEntryRef<GameDBRoomType>[] allowedRoomTypes, bool onlyComposite, ref TileObject __result)
         {
-            return !PerformanceOptimizationService.TryGetCachedObjectSearch(__originalMethod, __args, ref __result);
+            return !PerformanceOptimizationService.TryGetCachedObjectSearch(Key, new object[] { ignoredUser, ignoredOwner, position, room, tags, accessRights, needsToBeFree, allowedRoomTypes, onlyComposite }, ref __result);
         }
 
-        private static void Postfix(MethodBase __originalMethod, object[] __args, TileObject __result)
+        private static void Postfix(Entity ignoredUser, Entity ignoredOwner, Vector2i position, Room room, string[] tags, AccessRights accessRights, bool needsToBeFree, DatabaseEntryRef<GameDBRoomType>[] allowedRoomTypes, bool onlyComposite, TileObject __result)
         {
-            PerformanceOptimizationService.StoreObjectSearch(__originalMethod, __args, __result);
+            PerformanceOptimizationService.StoreObjectSearch(Key, new object[] { ignoredUser, ignoredOwner, position, room, tags, accessRights, needsToBeFree, allowedRoomTypes, onlyComposite }, __result);
+        }
+    }
+
+    [HarmonyPatch]
+    internal static class ObjectSearchCacheTagsDepartmentPatch
+    {
+        private const string Key = "MapScriptInterface.FindClosestFreeObjectWithTags#department";
+
+        private static MethodBase TargetMethod()
+        {
+            var type = AccessTools.TypeByName("Lopital.MapScriptInterface");
+            return type == null ? null : AccessTools.Method(type, "FindClosestFreeObjectWithTags", new[]
+            {
+                typeof(Vector2i),
+                typeof(int),
+                typeof(Department),
+                typeof(string[]),
+                typeof(AccessRights),
+                typeof(GameDBRoomType)
+            });
+        }
+
+        private static bool Prefix(Vector2i position, int floorIndex, Department department, string[] tags, AccessRights accessRights, GameDBRoomType roomType, ref TileObject __result)
+        {
+            return !PerformanceOptimizationService.TryGetCachedObjectSearch(Key, new object[] { position, floorIndex, department, tags, accessRights, roomType }, ref __result);
+        }
+
+        private static void Postfix(Vector2i position, int floorIndex, Department department, string[] tags, AccessRights accessRights, GameDBRoomType roomType, TileObject __result)
+        {
+            PerformanceOptimizationService.StoreObjectSearch(Key, new object[] { position, floorIndex, department, tags, accessRights, roomType }, __result);
+        }
+    }
+
+    [HarmonyPatch]
+    internal static class ObjectSearchCacheTagsRoomTagsPatch
+    {
+        private const string Key = "MapScriptInterface.FindClosestFreeObjectWithTagsAndRoomTags#department";
+
+        private static MethodBase TargetMethod()
+        {
+            var type = AccessTools.TypeByName("Lopital.MapScriptInterface");
+            return type == null ? null : AccessTools.Method(type, "FindClosestFreeObjectWithTagsAndRoomTags", new[]
+            {
+                typeof(Vector2i),
+                typeof(int),
+                typeof(Department),
+                typeof(string[]),
+                typeof(AccessRights),
+                typeof(string[])
+            });
+        }
+
+        private static bool Prefix(Vector2i position, int floorIndex, Department department, string[] tags, AccessRights accessRights, string[] roomTags, ref TileObject __result)
+        {
+            return !PerformanceOptimizationService.TryGetCachedObjectSearch(Key, new object[] { position, floorIndex, department, tags, accessRights, roomTags }, ref __result);
+        }
+
+        private static void Postfix(Vector2i position, int floorIndex, Department department, string[] tags, AccessRights accessRights, string[] roomTags, TileObject __result)
+        {
+            PerformanceOptimizationService.StoreObjectSearch(Key, new object[] { position, floorIndex, department, tags, accessRights, roomTags }, __result);
+        }
+    }
+
+    [HarmonyPatch]
+    internal static class ObjectSearchCacheTagEntityPatch
+    {
+        private const string Key = "MapScriptInterface.FindClosestFreeObjectWithTag#entity";
+
+        private static MethodBase TargetMethod()
+        {
+            var type = AccessTools.TypeByName("Lopital.MapScriptInterface");
+            return type == null ? null : AccessTools.Method(type, "FindClosestFreeObjectWithTag", new[]
+            {
+                typeof(Entity),
+                typeof(Entity),
+                typeof(Vector2i),
+                typeof(Room),
+                typeof(string),
+                typeof(AccessRights),
+                typeof(bool),
+                typeof(DatabaseEntryRef<GameDBRoomType>[]),
+                typeof(bool)
+            });
+        }
+
+        private static bool Prefix(Entity ignoredUser, Entity ignoredOwner, Vector2i position, Room room, string tag, AccessRights accessRights, bool needsToBeFree, DatabaseEntryRef<GameDBRoomType>[] allowedRoomTypes, bool onlyComposite, ref TileObject __result)
+        {
+            return !PerformanceOptimizationService.TryGetCachedObjectSearch(Key, new object[] { ignoredUser, ignoredOwner, position, room, tag, accessRights, needsToBeFree, allowedRoomTypes, onlyComposite }, ref __result);
+        }
+
+        private static void Postfix(Entity ignoredUser, Entity ignoredOwner, Vector2i position, Room room, string tag, AccessRights accessRights, bool needsToBeFree, DatabaseEntryRef<GameDBRoomType>[] allowedRoomTypes, bool onlyComposite, TileObject __result)
+        {
+            PerformanceOptimizationService.StoreObjectSearch(Key, new object[] { ignoredUser, ignoredOwner, position, room, tag, accessRights, needsToBeFree, allowedRoomTypes, onlyComposite }, __result);
         }
     }
 
