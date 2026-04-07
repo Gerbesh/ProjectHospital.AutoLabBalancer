@@ -34,6 +34,20 @@ namespace ProjectHospital.AutoLabBalancer
         public float ExpiresAt;
     }
 
+    internal sealed class SchedulingStaffCandidate
+    {
+        public object Staff;
+        public object Department;
+        public string Role;
+    }
+
+    internal sealed class SchedulingDispatchRecommendation
+    {
+        public object Staff;
+        public SchedulingTask Task;
+        public string StaffRole;
+    }
+
     internal sealed class SchedulingDepartmentBoard
     {
         public object Department;
@@ -55,6 +69,8 @@ namespace ProjectHospital.AutoLabBalancer
         public int NurseDryRunDispatches;
         public int DoctorDryRunDispatches;
         public readonly List<SchedulingTask> Tasks = new List<SchedulingTask>();
+        public readonly List<SchedulingStaffCandidate> StaffCandidates = new List<SchedulingStaffCandidate>();
+        public readonly List<SchedulingDispatchRecommendation> DispatchRecommendations = new List<SchedulingDispatchRecommendation>();
 
         public int TotalTasks
         {
@@ -113,7 +129,9 @@ namespace ProjectHospital.AutoLabBalancer
         public int FreeStaff;
         public int Patients;
         public int TaskObjects;
+        public int DispatchRecommendations;
         public string TopBoardSummary;
+        public string TopDispatchSummary;
         public readonly Dictionary<object, SchedulingDepartmentBoard> Boards = new Dictionary<object, SchedulingDepartmentBoard>(ReferenceEqualityComparer.Instance);
     }
 
@@ -134,6 +152,7 @@ namespace ProjectHospital.AutoLabBalancer
         public long ReservationBrokerHits;
         public long ReservationBrokerMisses;
         public long ReservationBrokerStores;
+        public long DispatcherRecommendations;
     }
 
     internal static class SchedulingEngineService
@@ -280,7 +299,8 @@ namespace ProjectHospital.AutoLabBalancer
                     DoctorSearchGatingSkips = Interlocked.Read(ref _doctorSearchGatingSkips),
                     ReservationBrokerHits = broker.Hits,
                     ReservationBrokerMisses = broker.Misses,
-                    ReservationBrokerStores = broker.Stores
+                    ReservationBrokerStores = broker.Stores,
+                    DispatcherRecommendations = _snapshot == null ? 0 : _snapshot.DispatchRecommendations
                 };
             }
         }
@@ -413,18 +433,22 @@ namespace ProjectHospital.AutoLabBalancer
             if (doctor != null)
             {
                 board.FreeDoctors++;
+                AddStaffCandidate(board, character, "doctor");
             }
             else if (nurse != null)
             {
                 board.FreeNurses++;
+                AddStaffCandidate(board, character, "nurse");
             }
             else if (lab != null)
             {
                 board.FreeLabSpecialists++;
+                AddStaffCandidate(board, character, "lab");
             }
             else if (janitor != null)
             {
                 board.FreeJanitors++;
+                AddStaffCandidate(board, character, "janitor");
             }
         }
 
@@ -584,6 +608,21 @@ namespace ProjectHospital.AutoLabBalancer
             });
         }
 
+        private static void AddStaffCandidate(SchedulingDepartmentBoard board, object staff, string role)
+        {
+            if (board == null || staff == null)
+            {
+                return;
+            }
+
+            board.StaffCandidates.Add(new SchedulingStaffCandidate
+            {
+                Staff = staff,
+                Department = board.Department,
+                Role = role
+            });
+        }
+
         private static string BuildTaskId(object patient, string requiredRole, SchedulingTaskType type, object targetProcedure)
         {
             return GetObjectKey(patient) + ":" + requiredRole + ":" + type + ":" + GetObjectKey(targetProcedure);
@@ -592,9 +631,11 @@ namespace ProjectHospital.AutoLabBalancer
         private static void FinalizeSnapshot(SchedulingSnapshot snapshot)
         {
             SchedulingDepartmentBoard top = null;
+            SchedulingDispatchRecommendation topDispatch = null;
             foreach (var pair in snapshot.Boards)
             {
                 var board = pair.Value;
+                BuildDispatchRecommendations(board);
                 snapshot.DepartmentBoards++;
                 snapshot.TotalTasks += board.TotalTasks;
                 snapshot.CriticalTasks += board.CriticalPatients + board.CollapseCareTasks;
@@ -605,13 +646,23 @@ namespace ProjectHospital.AutoLabBalancer
                 snapshot.NurseTasks += board.NurseTasks;
                 snapshot.DoctorTasks += board.DoctorTasks;
                 snapshot.TaskObjects += board.Tasks.Count;
-                board.NurseDryRunDispatches = Math.Min(board.FreeNurses, board.NurseTasks);
-                board.DoctorDryRunDispatches = Math.Min(board.FreeDoctors + board.FreeLabSpecialists, board.DoctorTasks);
+                board.NurseDryRunDispatches = CountRecommendations(board, "nurse");
+                board.DoctorDryRunDispatches = CountRecommendations(board, "doctor") + CountRecommendations(board, "lab");
                 snapshot.NurseDryRunDispatches += board.NurseDryRunDispatches;
                 snapshot.DoctorDryRunDispatches += board.DoctorDryRunDispatches;
+                snapshot.DispatchRecommendations += board.DispatchRecommendations.Count;
                 if (top == null || board.Score > top.Score)
                 {
                     top = board;
+                }
+
+                for (var i = 0; i < board.DispatchRecommendations.Count; i++)
+                {
+                    var recommendation = board.DispatchRecommendations[i];
+                    if (topDispatch == null || recommendation.Task.Priority > topDispatch.Task.Priority)
+                    {
+                        topDispatch = recommendation;
+                    }
                 }
             }
 
@@ -634,6 +685,92 @@ namespace ProjectHospital.AutoLabBalancer
             {
                 snapshot.TopBoardSummary = "none";
             }
+
+            snapshot.TopDispatchSummary = topDispatch == null
+                ? "none"
+                : topDispatch.StaffRole + " -> " + topDispatch.Task.Type + " priority=" + topDispatch.Task.Priority + " task=" + topDispatch.Task.TaskId;
+        }
+
+        private static void BuildDispatchRecommendations(SchedulingDepartmentBoard board)
+        {
+            if (board == null || board.Tasks.Count == 0 || board.StaffCandidates.Count == 0)
+            {
+                return;
+            }
+
+            var usedStaff = new HashSet<object>(ReferenceEqualityComparer.Instance);
+            for (var pick = 0; pick < board.StaffCandidates.Count; pick++)
+            {
+                SchedulingTask bestTask = null;
+                SchedulingStaffCandidate bestStaff = null;
+                for (var s = 0; s < board.StaffCandidates.Count; s++)
+                {
+                    var staff = board.StaffCandidates[s];
+                    if (usedStaff.Contains(staff.Staff))
+                    {
+                        continue;
+                    }
+
+                    for (var t = 0; t < board.Tasks.Count; t++)
+                    {
+                        var task = board.Tasks[t];
+                        if (!CanHandleTask(staff, task))
+                        {
+                            continue;
+                        }
+
+                        if (bestTask == null || task.Priority > bestTask.Priority)
+                        {
+                            bestTask = task;
+                            bestStaff = staff;
+                        }
+                    }
+                }
+
+                if (bestTask == null || bestStaff == null)
+                {
+                    return;
+                }
+
+                usedStaff.Add(bestStaff.Staff);
+                board.DispatchRecommendations.Add(new SchedulingDispatchRecommendation
+                {
+                    Staff = bestStaff.Staff,
+                    StaffRole = bestStaff.Role,
+                    Task = bestTask
+                });
+            }
+        }
+
+        private static bool CanHandleTask(SchedulingStaffCandidate staff, SchedulingTask task)
+        {
+            if (staff == null || task == null)
+            {
+                return false;
+            }
+
+            if (string.Equals(task.RequiredRole, staff.Role, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            return string.Equals(task.RequiredRole, "doctor", StringComparison.OrdinalIgnoreCase)
+                && string.Equals(staff.Role, "lab", StringComparison.OrdinalIgnoreCase)
+                && task.Type == SchedulingTaskType.WaitingPatient;
+        }
+
+        private static int CountRecommendations(SchedulingDepartmentBoard board, string role)
+        {
+            var count = 0;
+            for (var i = 0; i < board.DispatchRecommendations.Count; i++)
+            {
+                if (string.Equals(board.DispatchRecommendations[i].StaffRole, role, StringComparison.OrdinalIgnoreCase))
+                {
+                    count++;
+                }
+            }
+
+            return count;
         }
 
         private static bool IsFreeBehavior(object behavior)

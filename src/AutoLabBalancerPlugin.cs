@@ -16,7 +16,7 @@ namespace ProjectHospital.AutoLabBalancer
     {
         public const string PluginGuid = "local.projecthospital.autolabbalancer";
         public const string PluginName = "Project Hospital Productivity Tweaks";
-        public const string PluginVersion = "0.15.0";
+        public const string PluginVersion = "0.15.1";
 
         private AutoLabBalancerConfig _config;
         private Harmony _harmony;
@@ -427,6 +427,7 @@ namespace ProjectHospital.AutoLabBalancer
                         scheduling.RebuildMs.ToString("0.00")));
                     GUILayout.Label(ModText.F("SchedulingEngineTaskObjectsLine", scheduling.TaskObjects));
                     GUILayout.Label(ModText.T("SchedulingEngineTopBoard") + scheduling.TopBoardSummary);
+                    GUILayout.Label(ModText.T("SchedulingEngineTopDispatch") + scheduling.TopDispatchSummary);
                 }
 
                 var counters = SchedulingEngineService.GetCounters();
@@ -443,6 +444,7 @@ namespace ProjectHospital.AutoLabBalancer
                     counters.OutpatientGatingChecks,
                     counters.DoctorSearchGatingSkips,
                     counters.DoctorSearchGatingChecks));
+                GUILayout.Label(ModText.F("SchedulingDispatcherCountersLine", counters.DispatcherRecommendations));
                 GUILayout.Label(ModText.F("ReservationBrokerCountersLine",
                     counters.ReservationBrokerHits,
                     counters.ReservationBrokerMisses,
