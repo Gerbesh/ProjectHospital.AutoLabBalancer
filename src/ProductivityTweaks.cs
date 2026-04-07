@@ -722,13 +722,7 @@ namespace ProjectHospital.AutoLabBalancer
                 return false;
             }
 
-            var method = AccessTools.Method(map.GetType(), "FindDirtiestTileInARoom");
-            if (method == null)
-            {
-                return false;
-            }
-
-            var tile = method.Invoke(map, new[] { room, false, (object)floor.Value });
+            var tile = FindDirtyTile(room, floor.Value);
             return IsValidVector2(tile);
         }
 
@@ -747,8 +741,8 @@ namespace ProjectHospital.AutoLabBalancer
                 }
             }
 
-            method = map == null ? null : AccessTools.Method(map.GetType(), "FindDirtiestTileInARoom");
-            return method == null ? null : method.Invoke(map, new[] { room, false, (object)floorIndex });
+            method = map == null ? null : AccessTools.Method(map.GetType(), "FindFirstDirtyTileZigZag");
+            return method == null ? null : method.Invoke(map, new[] { room });
         }
 
         private static void CleanTile(object tile, int floorIndex)
