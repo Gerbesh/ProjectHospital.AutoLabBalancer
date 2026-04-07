@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.Reflection;
 using GLib;
 using HarmonyLib;
@@ -12,13 +13,22 @@ namespace ProjectHospital.AutoLabBalancer
     {
         private const float DefaultMultiplier = 3f;
 
-        public static bool Enabled
+        public static bool QueueBrokerEnabled
         {
             get
             {
                 return RuntimeSettings.Config != null
                     && RuntimeSettings.Config.Enabled.Value
-                    && RuntimeSettings.Config.EnableExternalTransferAmbulanceTweaks.Value;
+                    && RuntimeSettings.Config.EnableExternalTransferQueueBroker.Value;
+            }
+        }
+
+        public static bool ParamedicSpeedEnabled
+        {
+            get
+            {
+                return QueueBrokerEnabled
+                    && RuntimeSettings.Config.EnableExternalTransferParamedicSpeed.Value;
             }
         }
 
@@ -29,17 +39,13 @@ namespace ProjectHospital.AutoLabBalancer
 
         public static void ApplyExternalAmbulanceTimeScale(object ambulance, ref float timeStep)
         {
-            if (!Enabled || timeStep <= 0f || !IsExternalTransferAmbulance(ambulance))
-            {
-                return;
-            }
-
-            timeStep *= Multiplier;
+            // Intentionally no-op. The external ambulance state machine owns exactly one
+            // patient/paramedic and desynchronizes if its timeStep is accelerated.
         }
 
         public static void ApplyParamedicMovementExtraSteps(object walkComponent, int updateCount, float deltaTime)
         {
-            if (!Enabled || walkComponent == null || updateCount <= 0 || deltaTime <= 0f)
+            if (!ParamedicSpeedEnabled || walkComponent == null || updateCount <= 0 || deltaTime <= 0f)
             {
                 return;
             }
@@ -75,7 +81,7 @@ namespace ProjectHospital.AutoLabBalancer
 
         public static void ApplyParamedicAnimationTimeScale(object animModelComponent, ref float deltaTime)
         {
-            if (!Enabled || animModelComponent == null || deltaTime <= 0f || deltaTime > 0.05f)
+            if (!ParamedicSpeedEnabled || animModelComponent == null || deltaTime <= 0f || deltaTime > 0.05f)
             {
                 return;
             }
@@ -97,21 +103,8 @@ namespace ProjectHospital.AutoLabBalancer
 
         public static void HideSecondaryExternalAmbulance(object ambulance)
         {
-            if (!Enabled || ambulance == null || !IsExternalTransferAmbulance(ambulance))
-            {
-                return;
-            }
-
-            var manager = AmbulanceManager.Instance;
-            var ambulances = ReflectionHelpers.GetField(manager, "m_ambulances") as IList;
-            if (ambulances == null)
-            {
-                return;
-            }
-
-            var primary = FindPrimaryExternalAmbulance(ambulances);
-            var secondary = primary != null && !ReferenceEquals(primary, ambulance);
-            HideAmbulanceObject(ambulance, secondary);
+            // Intentionally no-op. Older builds tried to hide duplicate external ambulance jobs;
+            // that can freeze vanilla transfer flow, so the broker no longer creates/hides jobs.
         }
 
         private static bool IsTransferParamedic(object paramedic)
@@ -129,83 +122,177 @@ namespace ProjectHospital.AutoLabBalancer
             return Equals(ReflectionHelpers.GetField(state, "m_external"), true)
                 && !Equals(ReflectionHelpers.GetField(state, "m_isHelicopter"), true);
         }
+    }
 
-        private static bool HasBusyExternalAmbulance(IList ambulances)
+    internal sealed class ExternalTransferQueueSnapshot
+    {
+        public bool Ready;
+        public string Warning;
+        public float BuiltAt;
+        public int SentAwayPatients;
+        public int WaitingTransfers;
+        public int ExternalAmbulances;
+        public int ActiveTransfers;
+        public int ActiveParamedics;
+        public int StuckTransfers;
+        public float MaxActiveStateAge;
+        public string ActiveState;
+    }
+
+    internal static class ExternalTransferQueueBrokerService
+    {
+        private static readonly object Sync = new object();
+        private static ExternalTransferQueueSnapshot _snapshot;
+        private static float _nextRebuildAt;
+
+        public static ExternalTransferQueueSnapshot Snapshot
         {
-            foreach (var ambulance in ambulances)
+            get
             {
-                if (!IsExternalTransferAmbulance(ambulance))
+                lock (Sync)
+                {
+                    return _snapshot;
+                }
+            }
+        }
+
+        public static void Tick(float now)
+        {
+            if (!ExternalTransferAmbulanceTweaksService.QueueBrokerEnabled || now < _nextRebuildAt)
+            {
+                return;
+            }
+
+            _nextRebuildAt = now + 1.0f;
+            Rebuild(now);
+        }
+
+        private static void Rebuild(float now)
+        {
+            var snapshot = new ExternalTransferQueueSnapshot { BuiltAt = now };
+            try
+            {
+                var activePatients = new HashSet<object>(ReferenceEqualityComparer.Instance);
+                CountAmbulances(snapshot, activePatients);
+                CountSentAwayPatients(snapshot, activePatients);
+                snapshot.Ready = true;
+            }
+            catch (Exception ex)
+            {
+                snapshot.Warning = ex.GetType().Name + ": " + ex.Message;
+            }
+
+            lock (Sync)
+            {
+                _snapshot = snapshot;
+            }
+        }
+
+        private static void CountSentAwayPatients(ExternalTransferQueueSnapshot snapshot, HashSet<object> activePatients)
+        {
+            var hospital = Lopital.Hospital.Instance;
+            if (hospital == null)
+            {
+                snapshot.Warning = "Hospital.Instance is null.";
+                return;
+            }
+
+            foreach (var character in ReflectionHelpers.GetEnumerableField(hospital, "m_characters"))
+            {
+                var behaviorPatient = ReflectionHelpers.GetComponentByTypeName(character, "Lopital.BehaviorPatient");
+                if (!IsSentAwayPatient(behaviorPatient))
                 {
                     continue;
                 }
 
+                snapshot.SentAwayPatients++;
+                if (!activePatients.Contains(character))
+                {
+                    snapshot.WaitingTransfers++;
+                }
+            }
+        }
+
+        private static void CountAmbulances(ExternalTransferQueueSnapshot snapshot, HashSet<object> activePatients)
+        {
+            var manager = AmbulanceManager.Instance;
+            var ambulances = ReflectionHelpers.GetField(manager, "m_ambulances") as IList;
+            if (ambulances == null)
+            {
+                return;
+            }
+
+            foreach (var ambulance in ambulances)
+            {
                 var state = ReflectionHelpers.GetField(ambulance, "m_state");
-                if (ReflectionHelpers.ResolvePointer(ReflectionHelpers.GetField(state, "m_patient")) != null
-                    || !string.Equals(Convert.ToString(ReflectionHelpers.GetField(state, "m_state")), "PARKED", StringComparison.OrdinalIgnoreCase))
-                {
-                    return true;
-                }
-            }
-
-            return false;
-        }
-
-        private static int CountExternalAmbulances(IList ambulances)
-        {
-            var count = 0;
-            foreach (var ambulance in ambulances)
-            {
-                if (IsExternalTransferAmbulance(ambulance))
-                {
-                    count++;
-                }
-            }
-
-            return count;
-        }
-
-        private static Ambulance FindFreeExternalAmbulance(IList ambulances)
-        {
-            foreach (var ambulance in ambulances)
-            {
-                if (!IsExternalTransferAmbulance(ambulance))
+                if (!Equals(ReflectionHelpers.GetField(state, "m_external"), true)
+                    || Equals(ReflectionHelpers.GetField(state, "m_isHelicopter"), true))
                 {
                     continue;
                 }
 
-                var state = ReflectionHelpers.GetField(ambulance, "m_state");
-                if (ReflectionHelpers.ResolvePointer(ReflectionHelpers.GetField(state, "m_patient")) == null
-                    && string.Equals(Convert.ToString(ReflectionHelpers.GetField(state, "m_state")), "PARKED", StringComparison.OrdinalIgnoreCase))
+                snapshot.ExternalAmbulances++;
+                var patient = ReflectionHelpers.ResolvePointer(ReflectionHelpers.GetField(state, "m_patient"));
+                if (patient != null)
                 {
-                    return ambulance as Ambulance;
+                    activePatients.Add(patient);
+                }
+
+                var ambulanceState = Convert.ToString(ReflectionHelpers.GetField(state, "m_state"));
+                var isActive = patient != null || !string.Equals(ambulanceState, "PARKED", StringComparison.OrdinalIgnoreCase);
+                if (!isActive)
+                {
+                    continue;
+                }
+
+                snapshot.ActiveTransfers++;
+                var timeInState = ToFloat(ReflectionHelpers.GetField(state, "m_timeInState"));
+                if (timeInState > snapshot.MaxActiveStateAge)
+                {
+                    snapshot.MaxActiveStateAge = timeInState;
+                    snapshot.ActiveState = ambulanceState;
+                }
+
+                if (timeInState >= GetStuckWarningSeconds())
+                {
+                    snapshot.StuckTransfers++;
+                }
+
+                var paramedic = ReflectionHelpers.ResolvePointer(ReflectionHelpers.GetField(state, "m_paramedic"));
+                if (paramedic != null)
+                {
+                    snapshot.ActiveParamedics++;
                 }
             }
-
-            return null;
         }
 
-        private static object FindPrimaryExternalAmbulance(IList ambulances)
+        private static bool IsSentAwayPatient(object behaviorPatient)
         {
-            foreach (var ambulance in ambulances)
+            var state = ReflectionHelpers.GetField(behaviorPatient, "m_state");
+            return Equals(ReflectionHelpers.GetField(state, "m_sentAway"), true)
+                && !Equals(ReflectionHelpers.GetField(state, "m_sentHome"), true)
+                && !Equals(ReflectionHelpers.GetField(state, "m_deathTriggered"), true);
+        }
+
+        private static float GetStuckWarningSeconds()
+        {
+            return RuntimeSettings.Config == null ? 120f : Mathf.Max(10f, RuntimeSettings.Config.ExternalTransferStuckWarningSeconds.Value);
+        }
+
+        private static float ToFloat(object value)
+        {
+            if (value == null)
             {
-                if (IsExternalTransferAmbulance(ambulance))
-                {
-                    return ambulance;
-                }
+                return 0f;
             }
 
-            return null;
-        }
-
-        private static void HideAmbulanceObject(object ambulance, bool hidden)
-        {
-            var state = ReflectionHelpers.GetField(ambulance, "m_state");
-            var ambulanceObject = ReflectionHelpers.ResolvePointer(ReflectionHelpers.GetField(state, "m_ambulanceObject"));
-            var objectState = ReflectionHelpers.GetField(ambulanceObject, "m_compositeObjectPersistentData");
-            var field = objectState == null ? null : AccessTools.Field(objectState.GetType(), "m_hidden");
-            if (field != null)
+            try
             {
-                field.SetValue(objectState, hidden);
+                return Convert.ToSingle(value);
+            }
+            catch
+            {
+                return 0f;
             }
         }
     }

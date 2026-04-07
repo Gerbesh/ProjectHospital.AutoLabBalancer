@@ -372,6 +372,9 @@ Require-Field "Lopital.Ambulance" "m_state" | Out-Null
 Require-Field "Lopital.AmbulancePersistentData" "m_external" | Out-Null
 Require-Field "Lopital.AmbulancePersistentData" "m_isHelicopter" | Out-Null
 Require-Field "Lopital.AmbulancePersistentData" "m_patient" | Out-Null
+Require-Field "Lopital.AmbulancePersistentData" "m_paramedic" | Out-Null
+Require-Field "Lopital.AmbulancePersistentData" "m_state" | Out-Null
+Require-Field "Lopital.AmbulancePersistentData" "m_timeInState" | Out-Null
 Require-Field "Lopital.AmbulancePersistentData" "m_ambulanceObject" | Out-Null
 Require-Field "Lopital.BehaviorParamedic" "m_state" | Out-Null
 Require-Field "Lopital.BehaviorParamedicPersistentData" "m_currentPatient" | Out-Null

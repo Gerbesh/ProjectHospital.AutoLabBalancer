@@ -16,7 +16,7 @@ namespace ProjectHospital.AutoLabBalancer
     {
         public const string PluginGuid = "local.projecthospital.autolabbalancer";
         public const string PluginName = "Project Hospital Productivity Tweaks";
-        public const string PluginVersion = "0.16.1";
+        public const string PluginVersion = "0.16.2";
 
         private AutoLabBalancerConfig _config;
         private Harmony _harmony;
@@ -64,6 +64,7 @@ namespace ProjectHospital.AutoLabBalancer
 
             PerformanceProfiler.Tick(Time.realtimeSinceStartup);
             SchedulingEngineService.Tick(Time.realtimeSinceStartup);
+            ExternalTransferQueueBrokerService.Tick(Time.realtimeSinceStartup);
 
             if (Time.realtimeSinceStartup < _nextTickAt)
             {
@@ -240,8 +241,8 @@ namespace ProjectHospital.AutoLabBalancer
             DrawToggle(_config.EnableEquipmentReferral, ModText.T("EquipmentReferral"));
             DrawToggle(_config.EnableUnsupportedDiagnosisReferral, ModText.T("UnsupportedDiagnosisReferral"));
             DrawToggle(_config.EnableManualReferralPayment, ModText.T("ManualReferralPayment"));
-            DrawToggle(_config.EnableExternalTransferAmbulanceTweaks, ModText.T("ExternalTransferAmbulanceTweaks"));
-            DrawToggle(_config.EnableParallelExternalTransferAmbulances, ModText.T("ParallelExternalTransferAmbulances"));
+            DrawToggle(_config.EnableExternalTransferQueueBroker, ModText.T("ExternalTransferQueueBroker"));
+            DrawToggle(_config.EnableExternalTransferParamedicSpeed, ModText.T("ExternalTransferParamedicSpeed"));
             DrawToggle(_config.EnableDebugProductivityLog, ModText.T("ProductivityDebugLog"));
             DrawToggle(_config.EnableBottleneckOverlay, ModText.T("ShowBottleneckOverlay"));
             DrawToggle(_config.EnableSurgeryAnalyticsLog, ModText.T("SurgeryAnalyticsLog"));
@@ -455,6 +456,29 @@ namespace ProjectHospital.AutoLabBalancer
                     counters.ReservationBrokerStores));
             }
 
+            var externalTransfer = ExternalTransferQueueBrokerService.Snapshot;
+            if (externalTransfer != null)
+            {
+                GUILayout.Space(8f);
+                GUILayout.Label(ModText.T("ExternalTransferQueueBroker"));
+                if (!externalTransfer.Ready)
+                {
+                    GUILayout.Label(ModText.T("ExternalTransferQueueBrokerNotReady") + externalTransfer.Warning);
+                }
+                else
+                {
+                    GUILayout.Label(ModText.F("ExternalTransferQueueBrokerLine",
+                        externalTransfer.SentAwayPatients,
+                        externalTransfer.WaitingTransfers,
+                        externalTransfer.ActiveTransfers,
+                        externalTransfer.ActiveParamedics,
+                        externalTransfer.ExternalAmbulances,
+                        externalTransfer.StuckTransfers,
+                        externalTransfer.MaxActiveStateAge.ToString("0.0"),
+                        string.IsNullOrEmpty(externalTransfer.ActiveState) ? "-" : externalTransfer.ActiveState));
+                }
+            }
+
             if (GUILayout.Button(ModText.T("PerformanceProfilerReset")))
             {
                 PerformanceProfiler.Reset();
@@ -514,7 +538,10 @@ namespace ProjectHospital.AutoLabBalancer
         public ConfigEntry<bool> EquipmentReferralDebugLog { get; private set; }
         public ConfigEntry<bool> EnableExternalTransferAmbulanceTweaks { get; private set; }
         public ConfigEntry<bool> EnableParallelExternalTransferAmbulances { get; private set; }
+        public ConfigEntry<bool> EnableExternalTransferQueueBroker { get; private set; }
+        public ConfigEntry<bool> EnableExternalTransferParamedicSpeed { get; private set; }
         public ConfigEntry<float> ExternalTransferAmbulanceSpeedMultiplier { get; private set; }
+        public ConfigEntry<float> ExternalTransferStuckWarningSeconds { get; private set; }
         public ConfigEntry<int> MaxParallelExternalTransferAmbulances { get; private set; }
         public ConfigEntry<bool> EnableIntakeControl { get; private set; }
         public ConfigEntry<bool> EnableDynamicIntakeByDoctors { get; private set; }
@@ -603,7 +630,10 @@ namespace ProjectHospital.AutoLabBalancer
                 EquipmentReferralDebugLog = config.Bind("Referral", "EquipmentReferralDebugLog", false, "Write detailed equipment referral decisions."),
                 EnableExternalTransferAmbulanceTweaks = config.Bind("Referral", "EnableExternalTransferAmbulanceTweaks", false, "Speed up external ambulances/paramedics that transport sent-away patients to another hospital. Disabled by default because vanilla external ambulance flow is fragile."),
                 EnableParallelExternalTransferAmbulances = config.Bind("Referral", "EnableParallelExternalTransferAmbulances", false, "Allow multiple sent-away transfer jobs to run in parallel. Disabled; hidden duplicate external ambulances can desynchronize vanilla transfer flow."),
+                EnableExternalTransferQueueBroker = config.Bind("Referral", "EnableExternalTransferQueueBroker", true, "Build a safe read-only broker snapshot for external transfer ambulance queue diagnostics without touching the ambulance state machine."),
+                EnableExternalTransferParamedicSpeed = config.Bind("Referral", "EnableExternalTransferParamedicSpeed", true, "Speed up only the external-transfer paramedic movement/animation. The ambulance state machine timeStep is never accelerated."),
                 ExternalTransferAmbulanceSpeedMultiplier = config.Bind("Referral", "ExternalTransferAmbulanceSpeedMultiplier", 3.0f, "Movement/time multiplier for external transfer ambulances and their paramedics."),
+                ExternalTransferStuckWarningSeconds = config.Bind("Referral", "ExternalTransferStuckWarningSeconds", 120f, "How long an active external transfer ambulance state may run before F8 marks it as potentially stuck."),
                 MaxParallelExternalTransferAmbulances = config.Bind("Referral", "MaxParallelExternalTransferAmbulances", 6, "Maximum number of parallel external transfer ambulance jobs including the visible primary ambulance."),
                 EnableIntakeControl = config.Bind("IntakeControl", "EnableIntakeControl", false, "When true, cap today's insurance patient intake after vanilla insurance calculation. Disabled by default."),
                 EnableDynamicIntakeByDoctors = config.Bind("IntakeControl", "EnableDynamicIntakeByDoctors", true, "Calculate intake capacity from available outpatient doctors."),
@@ -968,6 +998,11 @@ namespace ProjectHospital.AutoLabBalancer
 
         public static object GetComponentByTypeName(object entity, string typeName)
         {
+            if (entity == null || string.IsNullOrEmpty(typeName))
+            {
+                return null;
+            }
+
             var field = AccessTools.Field(entity.GetType(), "m_components");
             var components = field == null ? null : field.GetValue(entity) as IEnumerable;
             if (components == null)
