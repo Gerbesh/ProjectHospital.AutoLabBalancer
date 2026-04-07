@@ -249,16 +249,22 @@ namespace ProjectHospital.AutoLabBalancer
                 return false;
             }
 
-            SchedulingDepartmentBoard schedulingBoard;
-            if (SchedulingEngineService.TryGetDepartmentBoard(department, out schedulingBoard))
+            if (RuntimeSettings.Config.EnableSchedulingEngineGating.Value)
             {
-                if (schedulingBoard.NurseScore > 0)
+                SchedulingDepartmentBoard schedulingBoard;
+                if (SchedulingEngineService.TryGetDepartmentBoard(department, out schedulingBoard))
                 {
-                    NurseIdleBackoff.Remove(nurse);
-                    return false;
-                }
+                    if (schedulingBoard.NurseScore > 0)
+                    {
+                        NurseIdleBackoff.Remove(nurse);
+                        SchedulingEngineService.RecordNurseGating(false);
+                        return false;
+                    }
 
-                return ShouldSkipShortBackoff(nurse, NurseIdleBackoff, RuntimeSettings.Config.EnableNurseIdleBackoff.Value);
+                    var skip = ShouldSkipShortBackoff(nurse, NurseIdleBackoff, RuntimeSettings.Config.EnableNurseIdleBackoff.Value);
+                    SchedulingEngineService.RecordNurseGating(skip);
+                    return skip;
+                }
             }
 
             var board = GetNurseBoard(department);
@@ -294,12 +300,20 @@ namespace ProjectHospital.AutoLabBalancer
 
         public static bool ShouldSkipWaitingSitting(object patient)
         {
-            SchedulingDepartmentBoard board;
-            if (SchedulingEngineService.TryGetPatientDepartmentBoard(patient, out board) && (board.FreeDoctors > 0 || board.FreeLabSpecialists > 0))
+            if (RuntimeSettings.Config.EnableSchedulingEngineGating.Value)
             {
-                WaitingSittingBackoff.Remove(patient);
-                PatientDoctorSearchBackoff.Remove(patient);
-                return false;
+                SchedulingDepartmentBoard board;
+                if (SchedulingEngineService.TryGetPatientDepartmentBoard(patient, out board) && (board.FreeDoctors > 0 || board.FreeLabSpecialists > 0))
+                {
+                    WaitingSittingBackoff.Remove(patient);
+                    PatientDoctorSearchBackoff.Remove(patient);
+                    SchedulingEngineService.RecordOutpatientGating(false);
+                    return false;
+                }
+
+                var skip = ShouldSkipShortBackoff(patient, WaitingSittingBackoff, RuntimeSettings.Config.EnableOutpatientQueueBackoff.Value);
+                SchedulingEngineService.RecordOutpatientGating(skip);
+                return skip;
             }
 
             return ShouldSkipShortBackoff(patient, WaitingSittingBackoff, RuntimeSettings.Config.EnableOutpatientQueueBackoff.Value);
@@ -317,12 +331,20 @@ namespace ProjectHospital.AutoLabBalancer
 
         public static bool ShouldSkipPatientDoctorSearch(object patient)
         {
-            SchedulingDepartmentBoard board;
-            if (SchedulingEngineService.TryGetPatientDepartmentBoard(patient, out board) && (board.FreeDoctors > 0 || board.FreeLabSpecialists > 0))
+            if (RuntimeSettings.Config.EnableSchedulingEngineGating.Value)
             {
-                PatientDoctorSearchBackoff.Remove(patient);
-                WaitingSittingBackoff.Remove(patient);
-                return false;
+                SchedulingDepartmentBoard board;
+                if (SchedulingEngineService.TryGetPatientDepartmentBoard(patient, out board) && (board.FreeDoctors > 0 || board.FreeLabSpecialists > 0))
+                {
+                    PatientDoctorSearchBackoff.Remove(patient);
+                    WaitingSittingBackoff.Remove(patient);
+                    SchedulingEngineService.RecordDoctorSearchGating(false);
+                    return false;
+                }
+
+                var skip = ShouldSkipShortBackoff(patient, PatientDoctorSearchBackoff, RuntimeSettings.Config.EnableOutpatientQueueBackoff.Value);
+                SchedulingEngineService.RecordDoctorSearchGating(skip);
+                return skip;
             }
 
             return ShouldSkipShortBackoff(patient, PatientDoctorSearchBackoff, RuntimeSettings.Config.EnableOutpatientQueueBackoff.Value);

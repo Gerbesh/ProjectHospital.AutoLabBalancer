@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Threading;
 using HarmonyLib;
 using UnityEngine;
 
@@ -87,12 +88,40 @@ namespace ProjectHospital.AutoLabBalancer
         public readonly Dictionary<object, SchedulingDepartmentBoard> Boards = new Dictionary<object, SchedulingDepartmentBoard>(ReferenceEqualityComparer.Instance);
     }
 
+    internal sealed class SchedulingCountersSnapshot
+    {
+        public long Rebuilds;
+        public double AverageRebuildMs;
+        public double MaxRebuildMs;
+        public long BoardHits;
+        public long BoardMisses;
+        public long BoardStale;
+        public long NurseGatingChecks;
+        public long NurseGatingSkips;
+        public long OutpatientGatingChecks;
+        public long OutpatientGatingSkips;
+        public long DoctorSearchGatingChecks;
+        public long DoctorSearchGatingSkips;
+    }
+
     internal static class SchedulingEngineService
     {
         private static readonly object Sync = new object();
         private static SchedulingSnapshot _snapshot;
         private static float _nextRebuildAt;
         private static readonly double TickToMs = 1000.0 / Stopwatch.Frequency;
+        private static long _rebuilds;
+        private static double _totalRebuildMs;
+        private static double _maxRebuildMs;
+        private static long _boardHits;
+        private static long _boardMisses;
+        private static long _boardStale;
+        private static long _nurseGatingChecks;
+        private static long _nurseGatingSkips;
+        private static long _outpatientGatingChecks;
+        private static long _outpatientGatingSkips;
+        private static long _doctorSearchGatingChecks;
+        private static long _doctorSearchGatingSkips;
 
         public static SchedulingSnapshot Snapshot
         {
@@ -131,6 +160,7 @@ namespace ProjectHospital.AutoLabBalancer
             board = null;
             if (!Enabled || department == null)
             {
+                Interlocked.Increment(ref _boardMisses);
                 return false;
             }
 
@@ -138,15 +168,24 @@ namespace ProjectHospital.AutoLabBalancer
             {
                 if (_snapshot == null || !_snapshot.Ready)
                 {
+                    Interlocked.Increment(ref _boardMisses);
                     return false;
                 }
 
                 if (Time.realtimeSinceStartup - _snapshot.BuiltAt > Mathf.Max(0.25f, RuntimeSettings.Config.SchedulingEngineMaxSnapshotAgeSeconds.Value))
                 {
+                    Interlocked.Increment(ref _boardStale);
                     return false;
                 }
 
-                return _snapshot.Boards.TryGetValue(department, out board);
+                if (_snapshot.Boards.TryGetValue(department, out board))
+                {
+                    Interlocked.Increment(ref _boardHits);
+                    return true;
+                }
+
+                Interlocked.Increment(ref _boardMisses);
+                return false;
             }
         }
 
@@ -159,6 +198,74 @@ namespace ProjectHospital.AutoLabBalancer
             }
 
             return TryGetDepartmentBoard(GetPatientDepartment(patient), out board);
+        }
+
+        public static void RecordNurseGating(bool skipped)
+        {
+            Interlocked.Increment(ref _nurseGatingChecks);
+            if (skipped)
+            {
+                Interlocked.Increment(ref _nurseGatingSkips);
+            }
+        }
+
+        public static void RecordOutpatientGating(bool skipped)
+        {
+            Interlocked.Increment(ref _outpatientGatingChecks);
+            if (skipped)
+            {
+                Interlocked.Increment(ref _outpatientGatingSkips);
+            }
+        }
+
+        public static void RecordDoctorSearchGating(bool skipped)
+        {
+            Interlocked.Increment(ref _doctorSearchGatingChecks);
+            if (skipped)
+            {
+                Interlocked.Increment(ref _doctorSearchGatingSkips);
+            }
+        }
+
+        public static SchedulingCountersSnapshot GetCounters()
+        {
+            lock (Sync)
+            {
+                return new SchedulingCountersSnapshot
+                {
+                    Rebuilds = _rebuilds,
+                    AverageRebuildMs = _rebuilds <= 0 ? 0.0 : _totalRebuildMs / _rebuilds,
+                    MaxRebuildMs = _maxRebuildMs,
+                    BoardHits = Interlocked.Read(ref _boardHits),
+                    BoardMisses = Interlocked.Read(ref _boardMisses),
+                    BoardStale = Interlocked.Read(ref _boardStale),
+                    NurseGatingChecks = Interlocked.Read(ref _nurseGatingChecks),
+                    NurseGatingSkips = Interlocked.Read(ref _nurseGatingSkips),
+                    OutpatientGatingChecks = Interlocked.Read(ref _outpatientGatingChecks),
+                    OutpatientGatingSkips = Interlocked.Read(ref _outpatientGatingSkips),
+                    DoctorSearchGatingChecks = Interlocked.Read(ref _doctorSearchGatingChecks),
+                    DoctorSearchGatingSkips = Interlocked.Read(ref _doctorSearchGatingSkips)
+                };
+            }
+        }
+
+        public static void ResetCounters()
+        {
+            lock (Sync)
+            {
+                _rebuilds = 0;
+                _totalRebuildMs = 0.0;
+                _maxRebuildMs = 0.0;
+                Interlocked.Exchange(ref _boardHits, 0);
+                Interlocked.Exchange(ref _boardMisses, 0);
+                Interlocked.Exchange(ref _boardStale, 0);
+                Interlocked.Exchange(ref _nurseGatingChecks, 0);
+                Interlocked.Exchange(ref _nurseGatingSkips, 0);
+                Interlocked.Exchange(ref _outpatientGatingChecks, 0);
+                Interlocked.Exchange(ref _outpatientGatingSkips, 0);
+                Interlocked.Exchange(ref _doctorSearchGatingChecks, 0);
+                Interlocked.Exchange(ref _doctorSearchGatingSkips, 0);
+            }
         }
 
         private static void Rebuild(float now)
@@ -190,6 +297,12 @@ namespace ProjectHospital.AutoLabBalancer
             lock (Sync)
             {
                 _snapshot = snapshot;
+                _rebuilds++;
+                _totalRebuildMs += snapshot.RebuildMs;
+                if (snapshot.RebuildMs > _maxRebuildMs)
+                {
+                    _maxRebuildMs = snapshot.RebuildMs;
+                }
             }
 
             if (RuntimeSettings.Config != null

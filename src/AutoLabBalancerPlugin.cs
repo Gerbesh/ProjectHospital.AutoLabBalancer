@@ -16,7 +16,7 @@ namespace ProjectHospital.AutoLabBalancer
     {
         public const string PluginGuid = "local.projecthospital.autolabbalancer";
         public const string PluginName = "Project Hospital Productivity Tweaks";
-        public const string PluginVersion = "0.14.3";
+        public const string PluginVersion = "0.14.4";
 
         private AutoLabBalancerConfig _config;
         private Harmony _harmony;
@@ -250,6 +250,7 @@ namespace ProjectHospital.AutoLabBalancer
             DrawToggle(_config.ProfilerAutoResetAfterLog, ModText.T("ProfilerAutoResetAfterLog"));
             DrawToggle(_config.EnablePerformanceOptimizations, ModText.T("EnablePerformanceOptimizations"));
             DrawToggle(_config.EnableSchedulingEngine, ModText.T("EnableSchedulingEngine"));
+            DrawToggle(_config.EnableSchedulingEngineGating, ModText.T("EnableSchedulingEngineGating"));
             DrawToggle(_config.EnableNurseTaskBoard, ModText.T("EnableNurseTaskBoard"));
             GUILayout.Space(8f);
             GUILayout.Label(ModText.T("IntakeControl"));
@@ -380,19 +381,19 @@ namespace ProjectHospital.AutoLabBalancer
             if (!_config.EnablePerformanceProfiler.Value)
             {
                 GUILayout.Label(ModText.T("PerformanceProfilerDisabled"));
-                return;
             }
-
-            var samples = PerformanceProfiler.GetTopSamples(_config.ProfilerTopN.Value);
-            if (samples.Count == 0)
+            else
             {
-                GUILayout.Label(ModText.T("PerformanceProfilerNoSamples"));
-                return;
-            }
+                var samples = PerformanceProfiler.GetTopSamples(_config.ProfilerTopN.Value);
+                if (samples.Count == 0)
+                {
+                    GUILayout.Label(ModText.T("PerformanceProfilerNoSamples"));
+                }
 
-            foreach (var sample in samples)
-            {
-                GUILayout.Label(PerformanceProfiler.FormatSample(sample));
+                foreach (var sample in samples)
+                {
+                    GUILayout.Label(PerformanceProfiler.FormatSample(sample));
+                }
             }
 
             var scheduling = SchedulingEngineService.Snapshot;
@@ -422,11 +423,27 @@ namespace ProjectHospital.AutoLabBalancer
                         scheduling.RebuildMs.ToString("0.00")));
                     GUILayout.Label(ModText.T("SchedulingEngineTopBoard") + scheduling.TopBoardSummary);
                 }
+
+                var counters = SchedulingEngineService.GetCounters();
+                GUILayout.Label(ModText.F("SchedulingEngineCountersLine",
+                    counters.Rebuilds,
+                    counters.AverageRebuildMs.ToString("0.00"),
+                    counters.MaxRebuildMs.ToString("0.00"),
+                    counters.BoardHits,
+                    counters.BoardMisses,
+                    counters.BoardStale,
+                    counters.NurseGatingSkips,
+                    counters.NurseGatingChecks,
+                    counters.OutpatientGatingSkips,
+                    counters.OutpatientGatingChecks,
+                    counters.DoctorSearchGatingSkips,
+                    counters.DoctorSearchGatingChecks));
             }
 
             if (GUILayout.Button(ModText.T("PerformanceProfilerReset")))
             {
                 PerformanceProfiler.Reset();
+                SchedulingEngineService.ResetCounters();
             }
         }
 
@@ -497,6 +514,7 @@ namespace ProjectHospital.AutoLabBalancer
         public ConfigEntry<bool> ProfilerAutoResetAfterLog { get; private set; }
         public ConfigEntry<bool> EnablePerformanceOptimizations { get; private set; }
         public ConfigEntry<bool> EnableSchedulingEngine { get; private set; }
+        public ConfigEntry<bool> EnableSchedulingEngineGating { get; private set; }
         public ConfigEntry<float> SchedulingEngineIntervalSeconds { get; private set; }
         public ConfigEntry<float> SchedulingEngineMaxSnapshotAgeSeconds { get; private set; }
         public ConfigEntry<bool> SchedulingEngineDebugLog { get; private set; }
@@ -578,6 +596,7 @@ namespace ProjectHospital.AutoLabBalancer
                 ProfilerAutoResetAfterLog = config.Bind("Performance", "ProfilerAutoResetAfterLog", false, "When true, reset profiler samples after each periodic log. Leave false for long manual profiling sessions."),
                 EnablePerformanceOptimizations = config.Bind("PerformanceOptimizations", "EnablePerformanceOptimizations", true, "Enable experimental runtime performance optimizations based on short-lived caches and backoff."),
                 EnableSchedulingEngine = config.Bind("PerformanceOptimizations", "EnableSchedulingEngine", true, "Build a central read-only runtime scheduling index for department task boards."),
+                EnableSchedulingEngineGating = config.Bind("PerformanceOptimizations", "EnableSchedulingEngineGating", true, "Allow the central scheduling index to influence AI backoff/gating. Disable to keep the index read-only for diagnostics."),
                 SchedulingEngineIntervalSeconds = config.Bind("PerformanceOptimizations", "SchedulingEngineIntervalSeconds", 0.5f, "How often to rebuild the central scheduling index."),
                 SchedulingEngineMaxSnapshotAgeSeconds = config.Bind("PerformanceOptimizations", "SchedulingEngineMaxSnapshotAgeSeconds", 1.5f, "Maximum scheduling snapshot age before optimizations ignore it."),
                 SchedulingEngineDebugLog = config.Bind("PerformanceOptimizations", "SchedulingEngineDebugLog", false, "Write central scheduling index rebuild summaries to the BepInEx log."),
