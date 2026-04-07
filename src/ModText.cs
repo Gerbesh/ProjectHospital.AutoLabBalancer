@@ -89,7 +89,27 @@ namespace ProjectHospital.AutoLabBalancer
             { "AwakeStarted", " awake started." },
             { "HarmonyInstalled", "Harmony patches installed." },
             { "HarmonyFailed", "Harmony patching failed; continuing without optional patches. " },
-            { "Loaded", " loaded." }
+            { "Loaded", " loaded." },
+            { "UpgradesTab", "Upgrades" },
+            { "UpgradesTitle", "Hospital upgrades" },
+            { "UpgradeMax", "MAX" },
+            { "UpgradeBuy", "Buy" },
+            { "UpgradeLevel", "Lv. {0}/6" },
+            { "UpgradeCost", "Cost: ${0}" },
+            { "UpgradeEffect", "Effect: {0}" },
+            { "UpgradeNotEnoughMoney", "Not enough money" },
+            { "UpgradeClinical", "Clinical Overdrive" },
+            { "UpgradeNursing", "Nursing Overdrive" },
+            { "UpgradeLab", "Laboratory Conveyor" },
+            { "UpgradeCleaning", "Sanitary Blitz" },
+            { "UpgradeDiagnostics", "Turbo Diagnostics" },
+            { "UpgradeTherapy", "Therapy Protocols" },
+            { "UpgradeSurgery", "Surgery Conveyor" },
+            { "UpgradeMonitoring", "Life Support Monitoring" },
+            { "UpgradeInsurance", "Insurance Pressure" },
+            { "UpgradeWages", "Financial Grinder" },
+            { "UpgradeProcurement", "Procurement Cartel" },
+            { "UpgradeReputation", "Marketing Machine" }
         };
 
         private static readonly Dictionary<string, string> Ru = new Dictionary<string, string>
@@ -175,7 +195,27 @@ namespace ProjectHospital.AutoLabBalancer
             { "AwakeStarted", " начал загрузку." },
             { "HarmonyInstalled", "Harmony-патчи установлены." },
             { "HarmonyFailed", "Не удалось установить Harmony-патчи; продолжаем без опциональных патчей. " },
-            { "Loaded", " загружен." }
+            { "Loaded", " загружен." },
+            { "UpgradesTab", "Улучшения" },
+            { "UpgradesTitle", "Улучшения больницы" },
+            { "UpgradeMax", "МАКС" },
+            { "UpgradeBuy", "Купить" },
+            { "UpgradeLevel", "Ур. {0}/6" },
+            { "UpgradeCost", "Цена: ${0}" },
+            { "UpgradeEffect", "Эффект: {0}" },
+            { "UpgradeNotEnoughMoney", "Недостаточно денег" },
+            { "UpgradeClinical", "Клинический форсаж" },
+            { "UpgradeNursing", "Сестринский форсаж" },
+            { "UpgradeLab", "Лабораторный конвейер" },
+            { "UpgradeCleaning", "Санитарный блиц" },
+            { "UpgradeDiagnostics", "Турбо-диагностика" },
+            { "UpgradeTherapy", "Терапевтический протокол" },
+            { "UpgradeSurgery", "Операционный конвейер" },
+            { "UpgradeMonitoring", "Система жизнеобеспечения" },
+            { "UpgradeInsurance", "Страховой прессинг" },
+            { "UpgradeWages", "Финансовая мясорубка" },
+            { "UpgradeProcurement", "Закупочный картель" },
+            { "UpgradeReputation", "Рекламная машина" }
         };
 
         private static readonly Dictionary<string, string> RuLogPrefixes = new Dictionary<string, string>

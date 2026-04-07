@@ -16,7 +16,7 @@ namespace ProjectHospital.AutoLabBalancer
     {
         public const string PluginGuid = "local.projecthospital.autolabbalancer";
         public const string PluginName = "Project Hospital Productivity Tweaks";
-        public const string PluginVersion = "0.9.7";
+        public const string PluginVersion = "0.10.0";
 
         private AutoLabBalancerConfig _config;
         private Harmony _harmony;
@@ -410,11 +410,13 @@ namespace ProjectHospital.AutoLabBalancer
         public ConfigEntry<int> AmbulancePatientsPerDoctorPerShift { get; private set; }
         public ConfigEntry<int> ReserveEmergencyCapacityPercent { get; private set; }
         public ConfigEntry<bool> IntakeDebugLog { get; private set; }
+        public ConfigFile SourceConfig { get; private set; }
 
         public static AutoLabBalancerConfig Bind(ConfigFile config)
         {
             return new AutoLabBalancerConfig
             {
+                SourceConfig = config,
                 Enabled = config.Bind("General", "Enabled", true, "Master switch for the mod."),
                 PreventNegativeEmployeePerks = config.Bind("General", "PreventNegativeEmployeePerks", false, "When true, employee generation removes negative perks from hired/editor-created staff."),
                 EnableDebugLog = config.Bind("General", "EnableDebugLog", false, "Write detailed queue and candidate logs."),

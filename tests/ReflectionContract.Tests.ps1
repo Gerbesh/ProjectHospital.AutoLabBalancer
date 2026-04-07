@@ -161,6 +161,14 @@ Write-Host "Section: Plugin UI/localization"
 # Plugin UI/localization
 Require-Method "StringTable" "GetLocalizedText" @("System.String", "System.String[]") "System.String" | Out-Null
 Require-Method "StringTable" "GetCurrentLanguage" @() "System.String" | Out-Null
+Require-Method "HospitalManagementPanelController" "Start" @() | Out-Null
+Require-Method "HospitalManagementPanelController" "SetTab" @("HospitalManagementPanelController+HospitalManagementTabs") | Out-Null
+Require-Field "HospitalManagementPanelController" "m_tabStatistics" | Out-Null
+Require-Field "HospitalManagementPanelController" "m_tabButtonAmbulances" | Out-Null
+Require-Field "HospitalManagementPanelController" "m_activeTab" | Out-Null
+Require-Method "IconButtonController" "RemoveOnClickDelegate" @() | Out-Null
+Require-Method "IconButtonController" "SetOnClickedDelegate" @("IconButtonController+IconButtonOnClickDelegate") | Out-Null
+Require-Method "IconButtonController" "SetToolTipTextParameters" @("System.String[]") | Out-Null
 
 Write-Host "Section: Read-only bottleneck overlay lab counters"
 # Read-only lab counters used by the bottleneck overlay. The old lab auto-balance and
