@@ -11,7 +11,7 @@ namespace ProjectHospital.AutoLabBalancer
 {
     internal static class ExternalTransferAmbulanceTweaksService
     {
-        private const float DefaultMultiplier = 3f;
+        private const float DefaultMultiplier = 10f;
 
         public static bool QueueBrokerEnabled
         {

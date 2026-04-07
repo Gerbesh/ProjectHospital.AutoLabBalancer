@@ -16,7 +16,7 @@ namespace ProjectHospital.AutoLabBalancer
     {
         public const string PluginGuid = "local.projecthospital.autolabbalancer";
         public const string PluginName = "Project Hospital Productivity Tweaks";
-        public const string PluginVersion = "0.16.2";
+        public const string PluginVersion = "0.16.3";
 
         private AutoLabBalancerConfig _config;
         private Harmony _harmony;
@@ -632,7 +632,7 @@ namespace ProjectHospital.AutoLabBalancer
                 EnableParallelExternalTransferAmbulances = config.Bind("Referral", "EnableParallelExternalTransferAmbulances", false, "Allow multiple sent-away transfer jobs to run in parallel. Disabled; hidden duplicate external ambulances can desynchronize vanilla transfer flow."),
                 EnableExternalTransferQueueBroker = config.Bind("Referral", "EnableExternalTransferQueueBroker", true, "Build a safe read-only broker snapshot for external transfer ambulance queue diagnostics without touching the ambulance state machine."),
                 EnableExternalTransferParamedicSpeed = config.Bind("Referral", "EnableExternalTransferParamedicSpeed", true, "Speed up only the external-transfer paramedic movement/animation. The ambulance state machine timeStep is never accelerated."),
-                ExternalTransferAmbulanceSpeedMultiplier = config.Bind("Referral", "ExternalTransferAmbulanceSpeedMultiplier", 3.0f, "Movement/time multiplier for external transfer ambulances and their paramedics."),
+                ExternalTransferAmbulanceSpeedMultiplier = config.Bind("Referral", "ExternalTransferAmbulanceSpeedMultiplier", 10.0f, "Movement/animation multiplier for external-transfer paramedics only. External ambulance state-machine timeStep is never accelerated."),
                 ExternalTransferStuckWarningSeconds = config.Bind("Referral", "ExternalTransferStuckWarningSeconds", 120f, "How long an active external transfer ambulance state may run before F8 marks it as potentially stuck."),
                 MaxParallelExternalTransferAmbulances = config.Bind("Referral", "MaxParallelExternalTransferAmbulances", 6, "Maximum number of parallel external transfer ambulance jobs including the visible primary ambulance."),
                 EnableIntakeControl = config.Bind("IntakeControl", "EnableIntakeControl", false, "When true, cap today's insurance patient intake after vanilla insurance calculation. Disabled by default."),
