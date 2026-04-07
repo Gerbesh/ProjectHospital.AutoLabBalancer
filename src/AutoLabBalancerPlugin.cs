@@ -16,7 +16,7 @@ namespace ProjectHospital.AutoLabBalancer
     {
         public const string PluginGuid = "local.projecthospital.autolabbalancer";
         public const string PluginName = "Project Hospital Auto Lab Balancer";
-        public const string PluginVersion = "0.8.16";
+        public const string PluginVersion = "0.8.17";
 
         private AutoLabBalancerConfig _config;
         private LabSnapshotService _snapshotService;

@@ -305,6 +305,47 @@ namespace ProjectHospital.AutoLabBalancer
             }
         }
 
+        public static void ApplyEmergencyRunningExtraSteps(object walkComponent, int updateCount, float deltaTime)
+        {
+            if (!ShouldBoostRunningMovement(walkComponent) || deltaTime <= 0f || updateCount <= 0)
+            {
+                return;
+            }
+
+            var multiplier = Math.Max(1f, RuntimeSettings.Config.EmergencyRunSpeedMultiplier.Value);
+            var extraSteps = Math.Max(0, (int)Math.Round((multiplier - 1f) * updateCount));
+            if (extraSteps <= 0)
+            {
+                return;
+            }
+
+            try
+            {
+                var routeField = AccessTools.Field(walkComponent.GetType(), "m_route");
+                var floorField = AccessTools.Field(walkComponent.GetType(), "m_floor");
+                var updateMovement = AccessTools.Method(walkComponent.GetType(), "UpdateMovement");
+                if (routeField == null || floorField == null || updateMovement == null)
+                {
+                    return;
+                }
+
+                var floor = floorField.GetValue(walkComponent);
+                for (var i = 0; i < extraSteps && routeField.GetValue(walkComponent) != null; i++)
+                {
+                    var result = updateMovement.Invoke(walkComponent, new[] { floor, (object)deltaTime });
+                    RuntimeCounters.EmergencySpeedBoosts++;
+                    if (result != null && string.Equals(result.ToString(), "NEXT_SEGMENT", StringComparison.OrdinalIgnoreCase) && routeField.GetValue(walkComponent) != null)
+                    {
+                        updateMovement.Invoke(walkComponent, new[] { floor, (object)deltaTime });
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogError("Emergency running extra step failed: " + ex);
+            }
+        }
+
         public static bool TryHandleAfterExaminationCheck(object hospitalization, float deltaTime)
         {
             if (!IsEnabled()
@@ -1397,19 +1438,14 @@ namespace ProjectHospital.AutoLabBalancer
         private static MethodBase TargetMethod()
         {
             var walkType = AccessTools.TypeByName("Lopital.WalkComponent");
-            var floorType = AccessTools.TypeByName("Lopital.Floor");
-            return walkType == null || floorType == null
+            return walkType == null
                 ? null
-                : AccessTools.Method(walkType, "UpdateMovement", new[] { floorType, typeof(float) });
+                : AccessTools.Method(walkType, "MultiUpdate", new[] { typeof(int), typeof(float) });
         }
 
-        private static void Prefix(object __instance, ref float deltaTime)
+        private static void Postfix(object __instance, int updateCount, float deltaTime)
         {
-            if (deltaTime <= 0.05f && ProductivityTweaksService.ShouldBoostRunningMovement(__instance))
-            {
-                deltaTime = Math.Min(0.05f, deltaTime * Math.Max(1f, RuntimeSettings.Config.EmergencyRunSpeedMultiplier.Value));
-                RuntimeCounters.EmergencySpeedBoosts++;
-            }
+            ProductivityTweaksService.ApplyEmergencyRunningExtraSteps(__instance, updateCount, deltaTime);
         }
     }
 

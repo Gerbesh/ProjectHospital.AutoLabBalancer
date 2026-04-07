@@ -226,7 +226,10 @@ Require-Method "Lopital.MapScriptInterface" "FindClosestDirtyTileInARoom" @("Lop
 Require-Method "Lopital.MapScriptInterface" "FindFirstDirtyTileZigZag" @("Lopital.Room") "GLib.Vector2i" | Out-Null
 Require-Method "Lopital.MapScriptInterface" "CleanTile" @("GLib.Vector2i", "System.Int32") | Out-Null
 Require-Method "Lopital.WalkComponent" "UpdateMovement" @("Lopital.Floor", "System.Single") "Lopital.MovementResult" | Out-Null
+Require-Method "Lopital.WalkComponent" "MultiUpdate" @("System.Int32", "System.Single") | Out-Null
 Require-Field "Lopital.WalkComponent" "m_state" | Out-Null
+Require-Field "Lopital.WalkComponent" "m_floor" | Out-Null
+Require-Field "Lopital.WalkComponent" "m_route" | Out-Null
 Require-Field "Lopital.WalkComponentPersistentData" "m_movementType" | Out-Null
 Require-Method "Lopital.BehaviorDoctor" "GetSpeedModifier" @() "System.Single" | Out-Null
 Require-Method "Lopital.BehaviorNurse" "GetSpeedModifier" @() "System.Single" | Out-Null
