@@ -260,6 +260,7 @@ namespace ProjectHospital.AutoLabBalancer
             DrawToggle(_config.EnableSchedulingDispatcherApply, ModText.T("EnableSchedulingDispatcherApply"));
             DrawToggle(_config.EnableNurseTaskBoard, ModText.T("EnableNurseTaskBoard"));
             DrawToggle(_config.EnableReservationBroker, ModText.T("EnableReservationBroker"));
+            DrawToggle(_config.EnableRouteRequestThrottle, ModText.T("EnableRouteRequestThrottle"));
             GUILayout.Space(8f);
             GUILayout.Label(ModText.T("IntakeControl"));
             DrawToggle(_config.EnableIntakeControl, ModText.T("EnableIntakeControl"));
@@ -600,6 +601,8 @@ namespace ProjectHospital.AutoLabBalancer
         public ConfigEntry<bool> EnableOutpatientQueueBackoff { get; private set; }
         public ConfigEntry<float> OutpatientQueueBackoffSeconds { get; private set; }
         public ConfigEntry<float> OutpatientQueueBackoffMaxSeconds { get; private set; }
+        public ConfigEntry<bool> EnableRouteRequestThrottle { get; private set; }
+        public ConfigEntry<float> RouteRequestThrottleSeconds { get; private set; }
         public ConfigFile SourceConfig { get; private set; }
 
         public static AutoLabBalancerConfig Bind(ConfigFile config)
@@ -697,7 +700,9 @@ namespace ProjectHospital.AutoLabBalancer
                 NurseTaskBoardTtlSeconds = config.Bind("PerformanceOptimizations", "NurseTaskBoardTtlSeconds", 0.5f, "TTL for department nurse task board snapshots."),
                 EnableOutpatientQueueBackoff = config.Bind("PerformanceOptimizations", "EnableOutpatientQueueBackoff", true, "Throttle repeated outpatient waiting-room scans."),
                 OutpatientQueueBackoffSeconds = config.Bind("PerformanceOptimizations", "OutpatientQueueBackoffSeconds", 0.30f, "Initial backoff duration for repeated outpatient waiting-room scans."),
-                OutpatientQueueBackoffMaxSeconds = config.Bind("PerformanceOptimizations", "OutpatientQueueBackoffMaxSeconds", 2.0f, "Maximum adaptive backoff duration for repeated outpatient waiting-room scans.")
+                OutpatientQueueBackoffMaxSeconds = config.Bind("PerformanceOptimizations", "OutpatientQueueBackoffMaxSeconds", 2.0f, "Maximum adaptive backoff duration for repeated outpatient waiting-room scans."),
+                EnableRouteRequestThrottle = config.Bind("PerformanceOptimizations", "EnableRouteRequestThrottle", true, "Throttle repeated WalkComponent.SetDestination calls to the same target for the same character."),
+                RouteRequestThrottleSeconds = config.Bind("PerformanceOptimizations", "RouteRequestThrottleSeconds", 0.25f, "Short cooldown for duplicate route requests to the same destination.")
             };
         }
     }

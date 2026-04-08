@@ -35,6 +35,12 @@ namespace ProjectHospital.AutoLabBalancer
         public float Delay;
     }
 
+    internal sealed class RouteRequestState
+    {
+        public string Key;
+        public float ExpiresAt;
+    }
+
     internal sealed class ReservationBrokerCountersSnapshot
     {
         public long Hits;
@@ -180,6 +186,7 @@ namespace ProjectHospital.AutoLabBalancer
         private static readonly Dictionary<object, BackoffState> WaitingSittingBackoff = new Dictionary<object, BackoffState>();
         private static readonly Dictionary<object, BackoffState> PatientDoctorSearchBackoff = new Dictionary<object, BackoffState>();
         private static readonly Dictionary<object, float> PersonalNeedsIdleNextCheck = new Dictionary<object, float>(ReferenceEqualityComparer.Instance);
+        private static readonly Dictionary<object, RouteRequestState> RouteRequestThrottle = new Dictionary<object, RouteRequestState>(ReferenceEqualityComparer.Instance);
         private static float _nextCleanupAt;
 
         public static bool Enabled
@@ -209,6 +216,36 @@ namespace ProjectHospital.AutoLabBalancer
             Prune(NurseIdleBackoff, now);
             Prune(WaitingSittingBackoff, now);
             Prune(PatientDoctorSearchBackoff, now);
+            PruneRouteRequests(now);
+        }
+
+        public static bool ShouldSkipRepeatedRouteRequest(object walkComponent, object destination, int floorIndex, object movementType)
+        {
+            if (!Enabled
+                || RuntimeSettings.Config == null
+                || !RuntimeSettings.Config.EnableRouteRequestThrottle.Value
+                || walkComponent == null
+                || destination == null)
+            {
+                return false;
+            }
+
+            var key = BuildArgKey(destination) + "|floor=" + floorIndex + "|move=" + BuildArgKey(movementType);
+            var now = Time.realtimeSinceStartup;
+            RouteRequestState state;
+            if (RouteRequestThrottle.TryGetValue(walkComponent, out state)
+                && state.Key == key
+                && now < state.ExpiresAt)
+            {
+                return true;
+            }
+
+            RouteRequestThrottle[walkComponent] = new RouteRequestState
+            {
+                Key = key,
+                ExpiresAt = now + Mathf.Clamp(RuntimeSettings.Config.RouteRequestThrottleSeconds.Value, 0.05f, 1.0f)
+            };
+            return false;
         }
 
         public static bool TryGetCachedObjectSearch(MethodBase method, object[] args, ref TileObject result)
@@ -983,6 +1020,23 @@ namespace ProjectHospital.AutoLabBalancer
             }
         }
 
+        private static void PruneRouteRequests(float now)
+        {
+            var expired = new List<object>();
+            foreach (var pair in RouteRequestThrottle)
+            {
+                if (now >= pair.Value.ExpiresAt)
+                {
+                    expired.Add(pair.Key);
+                }
+            }
+
+            foreach (var key in expired)
+            {
+                RouteRequestThrottle.Remove(key);
+            }
+        }
+
         private static void PruneNurseBoards(float now)
         {
             var expired = new List<object>();
@@ -1322,6 +1376,44 @@ namespace ProjectHospital.AutoLabBalancer
         private static void Postfix(object __instance)
         {
             PerformanceOptimizationService.StorePatientDoctorSearchResult(__instance);
+        }
+    }
+
+    [HarmonyPatch]
+    internal static class RouteRequestThrottleVector2iPatch
+    {
+        private static MethodBase TargetMethod()
+        {
+            var type = AccessTools.TypeByName("Lopital.WalkComponent");
+            var vector2i = AccessTools.TypeByName("GLib.Vector2i");
+            var movementType = AccessTools.TypeByName("Lopital.MovementType");
+            return type == null || vector2i == null || movementType == null
+                ? null
+                : AccessTools.Method(type, "SetDestination", new[] { vector2i, typeof(int), movementType });
+        }
+
+        private static bool Prefix(object __instance, object destinationTile, int floorIndex, object movementType)
+        {
+            return !PerformanceOptimizationService.ShouldSkipRepeatedRouteRequest(__instance, destinationTile, floorIndex, movementType);
+        }
+    }
+
+    [HarmonyPatch]
+    internal static class RouteRequestThrottleVector2fPatch
+    {
+        private static MethodBase TargetMethod()
+        {
+            var type = AccessTools.TypeByName("Lopital.WalkComponent");
+            var vector2f = AccessTools.TypeByName("GLib.Vector2f");
+            var movementType = AccessTools.TypeByName("Lopital.MovementType");
+            return type == null || vector2f == null || movementType == null
+                ? null
+                : AccessTools.Method(type, "SetDestination", new[] { vector2f, typeof(int), movementType });
+        }
+
+        private static bool Prefix(object __instance, object destination, int floorIndex, object movementType)
+        {
+            return !PerformanceOptimizationService.ShouldSkipRepeatedRouteRequest(__instance, destination, floorIndex, movementType);
         }
     }
 

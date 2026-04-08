@@ -280,6 +280,8 @@ Write-Host "Section: Performance optimization targets"
 Require-AnyMethod "Lopital.MapScriptInterface" "FindClosestFreeObjectWithTags" | Out-Null
 Require-Method "Lopital.MapScriptInterface" "FindClosestFreeObjectWithTags" @("GLib.Vector2i", "System.Int32", "Lopital.Department", "System.String[]", "Lopital.AccessRights", "GameDBRoomType") "Lopital.TileObject" | Out-Null
 Require-AnyMethod "Lopital.MapScriptInterface" "FindClosestFreeObjectWithTag" | Out-Null
+Require-Method "Lopital.WalkComponent" "SetDestination" @("GLib.Vector2i", "System.Int32", "Lopital.MovementType") | Out-Null
+Require-Method "Lopital.WalkComponent" "SetDestination" @("GLib.Vector2f", "System.Int32", "Lopital.MovementType") | Out-Null
 Require-Method "Lopital.ProcedureComponent" "ReserveExamination" @("GameDBExamination", "GLib.Entity", "Lopital.Department", "Lopital.Room", "Lopital.AccessRights") "Lopital.ProcedureSceneAvailability" | Out-Null
 Require-Method "Lopital.ProcedureComponent" "ReserveProcedure" @("GameDBProcedure", "GLib.Entity", "Lopital.Department", "Lopital.Room", "Lopital.AccessRights", "System.String", "System.Boolean") "Lopital.ProcedureSceneAvailability" | Out-Null
 Require-Method "Lopital.BehaviorPatient" "UpdateStateWaitingSitting" @("System.Single") | Out-Null
