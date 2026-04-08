@@ -16,7 +16,7 @@ namespace ProjectHospital.AutoLabBalancer
     {
         public const string PluginGuid = "local.projecthospital.autolabbalancer";
         public const string PluginName = "Project Hospital Productivity Tweaks";
-        public const string PluginVersion = "0.16.9";
+        public const string PluginVersion = "0.17.0";
 
         private AutoLabBalancerConfig _config;
         private Harmony _harmony;
@@ -341,6 +341,11 @@ namespace ProjectHospital.AutoLabBalancer
                 GUILayout.Label(ModText.T("OrCleanupRooms") + ProductivityTweaksService.HighPriorityCleanupRoomCount);
                 GUILayout.EndVertical();
                 GUILayout.EndHorizontal();
+                if (!string.IsNullOrEmpty(_overlaySnapshot.JanitorDiagnostics))
+                {
+                    GUILayout.Label(ModText.T("JanitorDiagnostics"));
+                    GUILayout.Label(_overlaySnapshot.JanitorDiagnostics);
+                }
                 GUILayout.Label(ModText.T("NurseCleanupJobs") + ProductivityTweaksService.NurseCleanupJobCount);
                 GUILayout.Label(ModText.F("RadiologyQueueLine",
                     _overlaySnapshot.RadiologyPlannedExaminations,

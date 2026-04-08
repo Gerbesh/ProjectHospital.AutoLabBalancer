@@ -437,8 +437,7 @@ namespace ProjectHospital.AutoLabBalancer
 
         public static bool ShouldSkipLabSpecialistIdle(object labSpecialist)
         {
-            bool dispatcherDecision;
-            return TryGetDispatcherIdleDecision(labSpecialist, "lab", out dispatcherDecision) && !dispatcherDecision;
+            return false;
         }
 
         public static void StoreNurseIdleResult(object nurse)

@@ -53,6 +53,7 @@ namespace ProjectHospital.AutoLabBalancer
         public int IntakeAmbulanceCapacity;
         public int IntakeOutpatientDoctorCapacity;
         public string SurgeryReadinessDetails;
+        public string JanitorDiagnostics;
     }
 
     internal static class BottleneckOverlayService
@@ -145,6 +146,8 @@ namespace ProjectHospital.AutoLabBalancer
                     {
                         snapshot.FreeJanitors++;
                     }
+
+                    AddJanitorDiagnostic(character, janitor, snapshot);
                 }
 
                 if (patient != null)
@@ -204,6 +207,101 @@ namespace ProjectHospital.AutoLabBalancer
 
             var employee = ReflectionHelpers.GetComponentByTypeName(GetEntityFromComponent(behavior), "Lopital.EmployeeComponent");
             return employee == null || !ReflectionHelpers.InvokeBool(employee, "IsPerformingAProcedure");
+        }
+
+        private static void AddJanitorDiagnostic(object character, object janitor, BottleneckSnapshot snapshot)
+        {
+            if (CountLines(snapshot.JanitorDiagnostics) >= 8)
+            {
+                return;
+            }
+
+            var state = ReflectionHelpers.GetField(janitor, "m_state");
+            var janitorState = Convert.ToString(ReflectionHelpers.GetField(state, "m_janitorState"));
+            var employee = ReflectionHelpers.GetComponentByTypeName(character, "Lopital.EmployeeComponent");
+            var department = GetEmployeeDepartment(employee);
+            var assignedRooms = ReflectionHelpers.GetField(state, "m_assignedRooms") as IList;
+            var room = ReflectionHelpers.ResolvePointer(ReflectionHelpers.GetField(state, "m_room"));
+            var obj = ReflectionHelpers.ResolvePointer(ReflectionHelpers.GetField(state, "m_object"));
+            var cart = ReflectionHelpers.ResolvePointer(ReflectionHelpers.GetField(state, "m_cart"));
+            var reservedTile = ReflectionHelpers.GetField(state, "m_reservedTile");
+            var free = ReflectionHelpers.InvokeBool(janitor, "IsFree");
+            var reserved = ReflectionHelpers.InvokeBool(janitor, "GetReserved");
+            var performing = employee != null && ReflectionHelpers.InvokeBool(employee, "IsPerformingAProcedure");
+            var available = employee == null || ReflectionHelpers.InvokeBool(employee, "IsAvailable");
+            var dirtyCandidate = FindJanitorDirtyCandidate(janitor, department);
+
+            var line = DescribeCharacter(character)
+                + ": state=" + janitorState
+                + ", free=" + free
+                + ", reserved=" + reserved
+                + ", available=" + available
+                + ", procedure=" + performing
+                + ", assignedRooms=" + (assignedRooms == null ? 0 : assignedRooms.Count)
+                + ", room=" + DescribeShort(room)
+                + ", object=" + DescribeShort(obj)
+                + ", cart=" + DescribeShort(cart)
+                + ", tile=" + DescribeShort(reservedTile)
+                + ", dirtySearch=" + dirtyCandidate;
+
+            snapshot.JanitorDiagnostics = AppendLine(snapshot.JanitorDiagnostics, line);
+        }
+
+        private static string FindJanitorDirtyCandidate(object janitor, object department)
+        {
+            try
+            {
+                var map = Lopital.MapScriptInterface.Instance;
+                if (map == null || department == null)
+                {
+                    return "-";
+                }
+
+                var method = AccessTools.Method(map.GetType(), "FindDirtiestTileInRoomWithMatchingAssignmentAnyFloor", new[]
+                {
+                    AccessTools.TypeByName("Lopital.BehaviorJanitor"),
+                    AccessTools.TypeByName("Lopital.Department"),
+                    typeof(int)
+                });
+                if (method == null)
+                {
+                    return "method-missing";
+                }
+
+                var result = method.Invoke(map, new[] { janitor, department, (object)0 });
+                return result == null ? "none" : result.ToString();
+            }
+            catch (Exception ex)
+            {
+                return ex.GetType().Name;
+            }
+        }
+
+        private static string DescribeCharacter(object character)
+        {
+            if (character == null)
+            {
+                return "<null>";
+            }
+
+            var text = character.ToString();
+            return string.IsNullOrEmpty(text) ? character.GetHashCode().ToString() : text;
+        }
+
+        private static string DescribeShort(object value)
+        {
+            if (value == null)
+            {
+                return "-";
+            }
+
+            var text = value.ToString();
+            if (string.IsNullOrEmpty(text))
+            {
+                return value.GetHashCode().ToString();
+            }
+
+            return text.Length <= 32 ? text : text.Substring(0, 32);
         }
 
         private static bool IsHighRiskPatient(object character, object behaviorPatient)
