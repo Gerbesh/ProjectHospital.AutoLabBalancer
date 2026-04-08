@@ -20,8 +20,7 @@ namespace ProjectHospital.AutoLabBalancer
         CollapseCare,
         Examination,
         Treatment,
-        PersonalNeeds,
-        FreeTime
+        PersonalNeeds
     }
 
     internal sealed class SchedulingTask
@@ -101,8 +100,7 @@ namespace ProjectHospital.AutoLabBalancer
                     + MedicineTasks
                     + FoodTasks
                     + TransportTasks
-                    + CollapseCareTasks
-                    + PersonalNeedsTasks;
+                    + CollapseCareTasks;
         }
         }
 
@@ -531,8 +529,7 @@ namespace ProjectHospital.AutoLabBalancer
 
         private static void AddRoleScore(SchedulingDepartmentBoard board, string role, int score)
         {
-            if (string.Equals(role, "nurse", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(role, "lab", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(role, "nurse", StringComparison.OrdinalIgnoreCase))
             {
                 board.NurseScore += score;
             }
