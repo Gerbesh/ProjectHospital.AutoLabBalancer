@@ -437,7 +437,14 @@ namespace ProjectHospital.AutoLabBalancer
 
         public static bool ShouldSkipLabSpecialistIdle(object labSpecialist)
         {
-            return false;
+            bool dispatcherDecision;
+            return TryGetDispatcherIdleDecision(labSpecialist, "lab", out dispatcherDecision) && !dispatcherDecision;
+        }
+
+        public static bool ShouldSkipJanitorAdminIdle(object janitor)
+        {
+            bool dispatcherDecision;
+            return TryGetDispatcherIdleDecision(janitor, "janitor", out dispatcherDecision) && !dispatcherDecision;
         }
 
         public static void StoreNurseIdleResult(object nurse)
@@ -1239,6 +1246,21 @@ namespace ProjectHospital.AutoLabBalancer
         private static bool Prefix(object __instance)
         {
             return !PerformanceOptimizationService.ShouldSkipLabSpecialistIdle(__instance);
+        }
+    }
+
+    [HarmonyPatch]
+    internal static class JanitorAdminIdleDispatcherPatch
+    {
+        private static MethodBase TargetMethod()
+        {
+            var type = AccessTools.TypeByName("Lopital.BehaviorJanitor");
+            return type == null ? null : AccessTools.Method(type, "UpdateStateAdminIdle", new[] { typeof(float) });
+        }
+
+        private static bool Prefix(object __instance)
+        {
+            return !PerformanceOptimizationService.ShouldSkipJanitorAdminIdle(__instance);
         }
     }
 

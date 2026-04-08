@@ -19,7 +19,9 @@ namespace ProjectHospital.AutoLabBalancer
         Transport,
         CollapseCare,
         Examination,
-        Treatment
+        Treatment,
+        PersonalNeeds,
+        FreeTime
     }
 
     internal sealed class SchedulingTask
@@ -66,6 +68,7 @@ namespace ProjectHospital.AutoLabBalancer
         public int FreeNurses;
         public int FreeLabSpecialists;
         public int FreeJanitors;
+        public int PersonalNeedsTasks;
         public int NurseDryRunDispatches;
         public int DoctorDryRunDispatches;
         public readonly List<SchedulingTask> Tasks = new List<SchedulingTask>();
@@ -83,7 +86,8 @@ namespace ProjectHospital.AutoLabBalancer
                     + MedicineTasks
                     + FoodTasks
                     + TransportTasks
-                    + CollapseCareTasks;
+                    + CollapseCareTasks
+                    + PersonalNeedsTasks;
             }
         }
 
@@ -97,8 +101,9 @@ namespace ProjectHospital.AutoLabBalancer
                     + MedicineTasks
                     + FoodTasks
                     + TransportTasks
-                    + CollapseCareTasks;
-            }
+                    + CollapseCareTasks
+                    + PersonalNeedsTasks;
+        }
         }
 
         public int DoctorTasks
@@ -489,21 +494,51 @@ namespace ProjectHospital.AutoLabBalancer
             {
                 board.FreeDoctors++;
                 AddStaffCandidate(board, character, "doctor");
+                AddPersonalStaffTasks(board, character, doctor, "doctor");
             }
             else if (nurse != null)
             {
                 board.FreeNurses++;
                 AddStaffCandidate(board, character, "nurse");
+                AddPersonalStaffTasks(board, character, nurse, "nurse");
             }
             else if (lab != null)
             {
                 board.FreeLabSpecialists++;
                 AddStaffCandidate(board, character, "lab");
+                AddPersonalStaffTasks(board, character, lab, "lab");
             }
             else if (janitor != null)
             {
                 board.FreeJanitors++;
                 AddStaffCandidate(board, character, "janitor");
+                AddPersonalStaffTasks(board, character, janitor, "janitor");
+            }
+        }
+
+        private static void AddPersonalStaffTasks(SchedulingDepartmentBoard board, object staffEntity, object behavior, string role)
+        {
+            if (board == null || staffEntity == null || behavior == null)
+            {
+                return;
+            }
+
+            board.PersonalNeedsTasks++;
+            board.Score += 2;
+            AddTask(board, staffEntity, role, SchedulingTaskType.PersonalNeeds, 2, null);
+            AddRoleScore(board, role, 2);
+        }
+
+        private static void AddRoleScore(SchedulingDepartmentBoard board, string role, int score)
+        {
+            if (string.Equals(role, "nurse", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(role, "lab", StringComparison.OrdinalIgnoreCase))
+            {
+                board.NurseScore += score;
+            }
+            else if (string.Equals(role, "doctor", StringComparison.OrdinalIgnoreCase))
+            {
+                board.DoctorScore += score;
             }
         }
 
@@ -730,6 +765,7 @@ namespace ProjectHospital.AutoLabBalancer
                     + " surgery=" + top.PlannedSurgeryPatients
                     + " meds=" + top.MedicineTasks
                     + " transport=" + top.TransportTasks
+                    + " personal=" + top.PersonalNeedsTasks
                     + " nurseScore=" + top.NurseScore
                     + " doctorScore=" + top.DoctorScore
                     + " dryRun(nurse/doctor)=" + top.NurseDryRunDispatches + "/" + top.DoctorDryRunDispatches
