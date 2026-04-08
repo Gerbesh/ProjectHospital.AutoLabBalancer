@@ -96,15 +96,66 @@ namespace ProjectHospital.AutoLabBalancer
 
         public static void TryCreateParallelExternalAmbulance(object manager, ref Ambulance result)
         {
-            // Disabled intentionally. Hidden duplicate external ambulances can desynchronize
-            // vanilla AmbulancePersistentData and freeze transfer flow.
-            return;
+            if (result != null
+                || manager == null
+                || !QueueBrokerEnabled
+                || RuntimeSettings.Config == null
+                || !RuntimeSettings.Config.EnableParallelExternalTransferAmbulances.Value)
+            {
+                return;
+            }
+
+            var snapshot = ExternalTransferQueueBrokerService.Snapshot;
+            if (snapshot == null || !snapshot.Ready || snapshot.WaitingTransfers <= 0)
+            {
+                return;
+            }
+
+            var ambulances = ReflectionHelpers.GetField(manager, "m_ambulances") as IList;
+            if (ambulances == null)
+            {
+                return;
+            }
+
+            var max = Mathf.Max(1, RuntimeSettings.Config.MaxParallelExternalTransferAmbulances.Value);
+            if (CountActiveExternalAmbulances(ambulances) >= max)
+            {
+                return;
+            }
+
+            try
+            {
+                var ambulance = new Ambulance(null, true, false);
+                ambulances.Add(ambulance);
+                result = ambulance;
+            }
+            catch (Exception ex)
+            {
+                if (RuntimeSettings.Logger != null)
+                {
+                    RuntimeSettings.Logger.LogWarning("[ExternalTransfer] Failed to create parallel external ambulance: " + ex.GetType().Name + ": " + ex.Message);
+                }
+            }
         }
 
         public static void HideSecondaryExternalAmbulance(object ambulance)
         {
             // Intentionally no-op. Older builds tried to hide duplicate external ambulance jobs;
             // that can freeze vanilla transfer flow, so the broker no longer creates/hides jobs.
+        }
+
+        private static int CountActiveExternalAmbulances(IList ambulances)
+        {
+            var count = 0;
+            foreach (var ambulance in ambulances)
+            {
+                if (IsExternalTransferAmbulance(ambulance))
+                {
+                    count++;
+                }
+            }
+
+            return count;
         }
 
         private static bool IsTransferParamedic(object paramedic)

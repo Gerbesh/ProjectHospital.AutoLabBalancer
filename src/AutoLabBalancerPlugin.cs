@@ -16,7 +16,7 @@ namespace ProjectHospital.AutoLabBalancer
     {
         public const string PluginGuid = "local.projecthospital.autolabbalancer";
         public const string PluginName = "Project Hospital Productivity Tweaks";
-        public const string PluginVersion = "0.16.8";
+        public const string PluginVersion = "0.16.9";
 
         private AutoLabBalancerConfig _config;
         private Harmony _harmony;
@@ -640,7 +640,7 @@ namespace ProjectHospital.AutoLabBalancer
                 ReferUnsupportedIfNoProfileDoctor = config.Bind("Referral", "ReferUnsupportedIfNoProfileDoctor", true, "Refer diagnosed outpatients when no currently available doctor is found in the diagnosis profile department."),
                 EquipmentReferralDebugLog = config.Bind("Referral", "EquipmentReferralDebugLog", false, "Write detailed equipment referral decisions."),
                 EnableExternalTransferAmbulanceTweaks = config.Bind("Referral", "EnableExternalTransferAmbulanceTweaks", false, "Speed up external ambulances/paramedics that transport sent-away patients to another hospital. Disabled by default because vanilla external ambulance flow is fragile."),
-                EnableParallelExternalTransferAmbulances = config.Bind("Referral", "EnableParallelExternalTransferAmbulances", false, "Allow multiple sent-away transfer jobs to run in parallel. Disabled; hidden duplicate external ambulances can desynchronize vanilla transfer flow."),
+                EnableParallelExternalTransferAmbulances = config.Bind("Referral", "EnableParallelExternalTransferAmbulances", true, "Allow multiple sent-away transfer jobs to run in parallel by spawning normal visible external ambulance jobs. The ambulance state-machine timeStep is not accelerated."),
                 EnableExternalTransferQueueBroker = config.Bind("Referral", "EnableExternalTransferQueueBroker", true, "Build a safe read-only broker snapshot for external transfer ambulance queue diagnostics without touching the ambulance state machine."),
                 EnableExternalTransferParamedicSpeed = config.Bind("Referral", "EnableExternalTransferParamedicSpeed", true, "Speed up only the external-transfer paramedic movement/animation. The ambulance state machine timeStep is never accelerated."),
                 ExternalTransferAmbulanceSpeedMultiplier = config.Bind("Referral", "ExternalTransferAmbulanceSpeedMultiplier", 10.0f, "Movement/animation multiplier for external-transfer paramedics only. External ambulance state-machine timeStep is never accelerated."),
