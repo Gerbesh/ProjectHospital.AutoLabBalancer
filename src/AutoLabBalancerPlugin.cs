@@ -16,7 +16,7 @@ namespace ProjectHospital.AutoLabBalancer
     {
         public const string PluginGuid = "local.projecthospital.autolabbalancer";
         public const string PluginName = "Project Hospital Productivity Tweaks";
-        public const string PluginVersion = "0.17.4";
+        public const string PluginVersion = "0.17.5";
 
         private AutoLabBalancerConfig _config;
         private Harmony _harmony;
@@ -231,6 +231,7 @@ namespace ProjectHospital.AutoLabBalancer
             GUILayout.Label(ModText.T("ProductivityTweaks"));
             DrawToggle(_config.EnableAggressiveMedicationPlanning, ModText.T("PlanMedication"));
             DrawToggle(_config.EnablePostSurgeryCleanupPriority, ModText.T("PrioritizeOrCleanup"));
+            DrawToggle(_config.EnableJanitorStandbyAfterCleaning, ModText.T("JanitorStandbyAfterCleaning"));
             DrawToggle(_config.EnableStuckReservationCleanup, ModText.T("CleanStuckReservations"));
             DrawToggle(_config.EnableFlexibleStretcherPickup, ModText.T("FlexibleStretcherPickup"));
             DrawToggle(_config.EnableChainedHospitalizedExaminations, ModText.T("ChainDiagnostics"));
@@ -530,6 +531,7 @@ namespace ProjectHospital.AutoLabBalancer
         public ConfigEntry<float> TransportReservationTimeoutSeconds { get; private set; }
         public ConfigEntry<float> ORCleanupPriorityDurationSeconds { get; private set; }
         public ConfigEntry<float> NurseORCleanupMaxDurationSeconds { get; private set; }
+        public ConfigEntry<bool> EnableJanitorStandbyAfterCleaning { get; private set; }
         public ConfigEntry<bool> SuppressFreeTimeWhenDepartmentBusy { get; private set; }
         public ConfigEntry<bool> EnableDebugProductivityLog { get; private set; }
         public ConfigEntry<bool> EnableBottleneckOverlay { get; private set; }
@@ -627,6 +629,7 @@ namespace ProjectHospital.AutoLabBalancer
                 TransportReservationTimeoutSeconds = config.Bind("ProductivityTweaks", "TransportReservationTimeoutSeconds", 90f, "How long chained hospitalized patients may wait outside room before retrying procedure/transport reservation."),
                 ORCleanupPriorityDurationSeconds = config.Bind("ProductivityTweaks", "ORCleanupPriorityDurationSeconds", 300f, "How long an operating room remains a high-priority cleanup target after surgery."),
                 NurseORCleanupMaxDurationSeconds = config.Bind("ProductivityTweaks", "NurseORCleanupMaxDurationSeconds", 45f, "Maximum time a nurse-assisted cleanup attempt may own an operating room reservation."),
+                EnableJanitorStandbyAfterCleaning = config.Bind("ProductivityTweaks", "EnableJanitorStandbyAfterCleaning", true, "Keep janitors on duty after returning a cart when their shift is still active, instead of letting vanilla send them home."),
                 SuppressFreeTimeWhenDepartmentBusy = config.Bind("ProductivityTweaks", "SuppressFreeTimeWhenDepartmentBusy", false, "Legacy no-op. Free-time/needs are now handled by the central scheduler."),
                 EnableDebugProductivityLog = config.Bind("ProductivityTweaks", "EnableDebugProductivityLog", false, "Write detailed Productivity Tweaks decisions."),
                 EnableBottleneckOverlay = config.Bind("Overlay", "EnableBottleneckOverlay", true, "Show runtime bottleneck diagnostics in the F8 mod window."),

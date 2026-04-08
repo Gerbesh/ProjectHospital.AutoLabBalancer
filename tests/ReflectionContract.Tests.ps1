@@ -223,6 +223,7 @@ Require-Field "Lopital.ProcedureScriptTreatmentSurgery" "m_stateData" | Out-Null
 Require-Field "Lopital.ProcedureScriptPersistentData" "m_procedureScene" | Out-Null
 Require-Field "Lopital.ProcedureScene" "m_room" | Out-Null
 Require-Method "Lopital.BehaviorJanitor" "SelectNextAction" @() | Out-Null
+Require-Method "Lopital.BehaviorJanitor" "GoHome" @() | Out-Null
 Require-Method "Lopital.BehaviorJanitor" "UpdateStateCleaning" @("System.Single") | Out-Null
 Require-Method "Lopital.BehaviorNurse" "UpdateStateIdle" @("System.Single") | Out-Null
 Require-Method "Lopital.Room" "GetFloorIndex" @() "System.Int32" | Out-Null

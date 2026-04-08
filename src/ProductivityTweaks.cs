@@ -103,6 +103,54 @@ namespace ProjectHospital.AutoLabBalancer
             }
         }
 
+        public static bool TryKeepJanitorOnDutyInsteadOfGoingHome(object janitor)
+        {
+            if (!IsEnabled()
+                || RuntimeSettings.Config == null
+                || !RuntimeSettings.Config.EnableJanitorStandbyAfterCleaning.Value
+                || janitor == null)
+            {
+                return false;
+            }
+
+            try
+            {
+                if (!CanKeepJanitorOnDuty(janitor))
+                {
+                    return false;
+                }
+
+                var entity = GetEntityFromComponent(janitor);
+                var walk = ReflectionHelpers.GetComponentByTypeName(entity, "Lopital.WalkComponent");
+                InvokeVoid(walk, "Stop");
+
+                var state = ReflectionHelpers.GetField(janitor, "m_state");
+                SetField(state, "m_finished", false);
+
+                if (HasJanitorAdminWorkplace(janitor))
+                {
+                    InvokeVoid(janitor, "GoToWorkPlace");
+                    Debug("Kept janitor on duty at janitor admin workplace instead of going home.");
+                    return true;
+                }
+
+                if (TryStartJanitorNeedsOrFreetime(janitor))
+                {
+                    Debug("Kept janitor on duty via needs/free-time instead of going home.");
+                    return true;
+                }
+
+                SwitchJanitorState(janitor, "Cleaning");
+                Debug("Kept janitor on duty in cleaning loop instead of going home.");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                LogError("Janitor standby redirect failed: " + ex);
+                return false;
+            }
+        }
+
         public static bool TryHandleNurseAssistedCleanup(object nurse, float deltaTime)
         {
             if (!IsEnabled() || !RuntimeSettings.Config.EnableNurseAssistedORCleanup.Value || nurse == null || deltaTime <= 0f)
@@ -511,6 +559,78 @@ namespace ProjectHospital.AutoLabBalancer
             var state = ReflectionHelpers.GetField(janitor, "m_state");
             var janitorState = ReflectionHelpers.GetField(state, "m_janitorState");
             return string.Equals(Convert.ToString(janitorState), expectedState, StringComparison.Ordinal);
+        }
+
+        private static bool CanKeepJanitorOnDuty(object janitor)
+        {
+            var entity = GetEntityFromComponent(janitor);
+            var employee = ReflectionHelpers.GetComponentByTypeName(entity, "Lopital.EmployeeComponent");
+            if (employee == null || ReflectionHelpers.InvokeBool(employee, "IsFired"))
+            {
+                return false;
+            }
+
+            var employeeState = ReflectionHelpers.GetField(employee, "m_state");
+            if (Equals(ReflectionHelpers.GetField(employeeState, "m_noWorkSpaceForLongTime"), true))
+            {
+                return false;
+            }
+
+            var department = GetEmployeeDepartment(employee);
+            if (department == null || ReflectionHelpers.InvokeBool(department, "IsClosed"))
+            {
+                return false;
+            }
+
+            var employeeShift = ReflectionHelpers.GetField(employeeState, "m_shift");
+            if (Lopital.DayTime.Instance == null)
+            {
+                return false;
+            }
+
+            return Equals(employeeShift, Lopital.DayTime.Instance.GetShift());
+        }
+
+        private static bool TryStartJanitorNeedsOrFreetime(object janitor)
+        {
+            if (InvokeBool(janitor, "CheckNeeds"))
+            {
+                return SwitchJanitorState(janitor, "FulfillingNeeds");
+            }
+
+            if (InvokeBool(janitor, "CheckFreetime"))
+            {
+                return SwitchJanitorState(janitor, "FillingFreeTime");
+            }
+
+            return false;
+        }
+
+        private static bool HasJanitorAdminWorkplace(object janitor)
+        {
+            var entity = GetEntityFromComponent(janitor);
+            var employee = ReflectionHelpers.GetComponentByTypeName(entity, "Lopital.EmployeeComponent");
+            var getHomeRoomType = employee == null ? null : AccessTools.Method(employee.GetType(), "GetHomeRoomType");
+            var homeRoomType = getHomeRoomType == null ? null : getHomeRoomType.Invoke(employee, null);
+            return InvokeBool(homeRoomType, "HasTag", "janitor_admin_workplace");
+        }
+
+        private static bool SwitchJanitorState(object janitor, string stateName)
+        {
+            var stateType = AccessTools.TypeByName("Lopital.BehaviorJanitorState");
+            if (janitor == null || stateType == null)
+            {
+                return false;
+            }
+
+            var method = AccessTools.Method(janitor.GetType(), "SwitchState", new[] { stateType });
+            if (method == null)
+            {
+                return false;
+            }
+
+            method.Invoke(janitor, new[] { Enum.Parse(stateType, stateName) });
+            return true;
         }
 
         private static object FindBestCleanupRoom(object janitor, object department, float now)
@@ -1404,6 +1524,21 @@ namespace ProjectHospital.AutoLabBalancer
         private static void Postfix(object __instance)
         {
             ProductivityTweaksService.TrySelectPriorityCleanup(__instance);
+        }
+    }
+
+    [HarmonyPatch]
+    internal static class JanitorStandbyAfterCleaningPatch
+    {
+        private static MethodBase TargetMethod()
+        {
+            var type = AccessTools.TypeByName("Lopital.BehaviorJanitor");
+            return type == null ? null : AccessTools.Method(type, "GoHome");
+        }
+
+        private static bool Prefix(object __instance)
+        {
+            return !ProductivityTweaksService.TryKeepJanitorOnDutyInsteadOfGoingHome(__instance);
         }
     }
 
