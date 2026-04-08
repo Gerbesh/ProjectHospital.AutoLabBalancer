@@ -12,6 +12,7 @@ namespace ProjectHospital.AutoLabBalancer
         private static int _lastTargetFrameRate = int.MinValue;
         private static int _lastVSyncCount = int.MinValue;
         private static float _lastMaximumDeltaTime = -1f;
+        private static int _lastMonitorRefreshRate = int.MinValue;
 
         public static string Summary
         {
@@ -19,6 +20,7 @@ namespace ProjectHospital.AutoLabBalancer
             {
                 return ModText.F("FramePacingLine",
                     Application.targetFrameRate,
+                    _lastMonitorRefreshRate > 0 ? _lastMonitorRefreshRate.ToString() : "-",
                     QualitySettings.vSyncCount,
                     Time.maximumDeltaTime.ToString("0.000"));
             }
@@ -38,7 +40,7 @@ namespace ProjectHospital.AutoLabBalancer
                 return;
             }
 
-            var targetFrameRate = Mathf.Clamp(RuntimeSettings.Config.FramePacingTargetFrameRate.Value, 30, 240);
+            var targetFrameRate = GetTargetFrameRate();
             var vSyncCount = RuntimeSettings.Config.FramePacingDisableVSync.Value ? 0 : 1;
             var maximumDeltaTime = Mathf.Clamp(RuntimeSettings.Config.FramePacingMaximumDeltaTime.Value, 0.016f, 0.25f);
 
@@ -89,7 +91,25 @@ namespace ProjectHospital.AutoLabBalancer
             _lastTargetFrameRate = int.MinValue;
             _lastVSyncCount = int.MinValue;
             _lastMaximumDeltaTime = -1f;
+            _lastMonitorRefreshRate = int.MinValue;
             _applied = false;
+        }
+
+        private static int GetTargetFrameRate()
+        {
+            var configured = RuntimeSettings.Config.FramePacingTargetFrameRate.Value;
+            if (RuntimeSettings.Config.FramePacingUseMonitorRefreshRate.Value)
+            {
+                var refreshRate = Screen.currentResolution.refreshRate;
+                if (refreshRate > 0)
+                {
+                    _lastMonitorRefreshRate = refreshRate;
+                    return Mathf.Clamp(refreshRate, 30, 240);
+                }
+            }
+
+            _lastMonitorRefreshRate = int.MinValue;
+            return Mathf.Clamp(configured, 30, 240);
         }
     }
 }

@@ -16,7 +16,7 @@ namespace ProjectHospital.AutoLabBalancer
     {
         public const string PluginGuid = "local.projecthospital.autolabbalancer";
         public const string PluginName = "Project Hospital Productivity Tweaks";
-        public const string PluginVersion = "0.16.4";
+        public const string PluginVersion = "0.16.5";
 
         private AutoLabBalancerConfig _config;
         private Harmony _harmony;
@@ -253,6 +253,7 @@ namespace ProjectHospital.AutoLabBalancer
             DrawToggle(_config.EnablePerformanceProfiler, ModText.T("EnablePerformanceProfiler"));
             DrawToggle(_config.ProfilerAutoResetAfterLog, ModText.T("ProfilerAutoResetAfterLog"));
             DrawToggle(_config.EnableFramePacing, ModText.T("EnableFramePacing"));
+            DrawToggle(_config.FramePacingUseMonitorRefreshRate, ModText.T("FramePacingUseMonitorRefreshRate"));
             DrawToggle(_config.EnablePerformanceOptimizations, ModText.T("EnablePerformanceOptimizations"));
             DrawToggle(_config.EnableSchedulingEngine, ModText.T("EnableSchedulingEngine"));
             DrawToggle(_config.EnableSchedulingEngineGating, ModText.T("EnableSchedulingEngineGating"));
@@ -564,6 +565,7 @@ namespace ProjectHospital.AutoLabBalancer
         public ConfigEntry<float> ProfilerSlowCallMs { get; private set; }
         public ConfigEntry<bool> ProfilerAutoResetAfterLog { get; private set; }
         public ConfigEntry<bool> EnableFramePacing { get; private set; }
+        public ConfigEntry<bool> FramePacingUseMonitorRefreshRate { get; private set; }
         public ConfigEntry<int> FramePacingTargetFrameRate { get; private set; }
         public ConfigEntry<bool> FramePacingDisableVSync { get; private set; }
         public ConfigEntry<float> FramePacingMaximumDeltaTime { get; private set; }
@@ -660,7 +662,8 @@ namespace ProjectHospital.AutoLabBalancer
                 ProfilerSlowCallMs = config.Bind("Performance", "ProfilerSlowCallMs", 5f, "Calls at or above this duration are counted as slow calls."),
                 ProfilerAutoResetAfterLog = config.Bind("Performance", "ProfilerAutoResetAfterLog", false, "When true, reset profiler samples after each periodic log. Leave false for long manual profiling sessions."),
                 EnableFramePacing = config.Bind("Performance", "EnableFramePacing", true, "Apply stable frame pacing settings: target FPS, vSync mode, and maximumDeltaTime clamp."),
-                FramePacingTargetFrameRate = config.Bind("Performance", "FramePacingTargetFrameRate", 60, "Target render FPS when frame pacing is enabled. 60 is intentionally conservative for smoother CPU-bound pacing."),
+                FramePacingUseMonitorRefreshRate = config.Bind("Performance", "FramePacingUseMonitorRefreshRate", true, "Use the current monitor refresh rate as target FPS when frame pacing is enabled. Falls back to FramePacingTargetFrameRate if Unity reports 0."),
+                FramePacingTargetFrameRate = config.Bind("Performance", "FramePacingTargetFrameRate", 60, "Manual target render FPS when monitor-refresh mode is disabled or unavailable."),
                 FramePacingDisableVSync = config.Bind("Performance", "FramePacingDisableVSync", true, "Disable Unity vSync when frame pacing is enabled so Application.targetFrameRate can take effect."),
                 FramePacingMaximumDeltaTime = config.Bind("Performance", "FramePacingMaximumDeltaTime", 0.05f, "Clamp Unity Time.maximumDeltaTime to reduce post-stutter catch-up spikes. Vanilla is often larger."),
                 EnablePerformanceOptimizations = config.Bind("PerformanceOptimizations", "EnablePerformanceOptimizations", true, "Enable experimental runtime performance optimizations based on short-lived caches and backoff."),
