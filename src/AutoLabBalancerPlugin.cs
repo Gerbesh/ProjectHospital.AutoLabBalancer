@@ -16,7 +16,7 @@ namespace ProjectHospital.AutoLabBalancer
     {
         public const string PluginGuid = "local.projecthospital.autolabbalancer";
         public const string PluginName = "Project Hospital Productivity Tweaks";
-        public const string PluginVersion = "0.16.5";
+        public const string PluginVersion = "0.16.6";
 
         private AutoLabBalancerConfig _config;
         private Harmony _harmony;
@@ -607,7 +607,7 @@ namespace ProjectHospital.AutoLabBalancer
                 EnableDebugLog = config.Bind("General", "EnableDebugLog", false, "Write detailed queue and candidate logs."),
                 SettingsWindowKey = config.Bind("General", "SettingsWindowKey", KeyCode.F8, "Key used to show the in-game mod settings window."),
                 TickIntervalSeconds = config.Bind("General", "TickIntervalSeconds", 30f, "How often to run background mod maintenance."),
-                EnablePostSurgeryCleanupPriority = config.Bind("ProductivityTweaks", "EnablePostSurgeryCleanupPriority", true, "After surgery, prioritize the operating room for janitor cleanup."),
+                EnablePostSurgeryCleanupPriority = config.Bind("ProductivityTweaks", "EnablePostSurgeryCleanupPriority", false, "After surgery, prioritize the operating room for janitor cleanup. Disabled by default because forcing janitor room selection can interfere with vanilla janitor shift state."),
                 EnableNurseAssistedORCleanup = config.Bind("ProductivityTweaks", "EnableNurseAssistedORCleanup", false, "Allow free surgical nurses to help with limited operating room cleanup when no higher-priority nurse work is detected."),
                 EnableFreeTimeSuppression = config.Bind("ProductivityTweaks", "EnableFreeTimeSuppression", true, "Prevent doctor/nurse free-time procedures while the department is visibly busy."),
                 EnableStuckReservationCleanup = config.Bind("ProductivityTweaks", "EnableStuckReservationCleanup", true, "Watchdog for stale employee and room reservations."),

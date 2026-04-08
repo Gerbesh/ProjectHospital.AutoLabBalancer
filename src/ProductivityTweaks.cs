@@ -507,14 +507,20 @@ namespace ProjectHospital.AutoLabBalancer
 
         private static bool TryForceJanitorRoomSelection(object janitor, object room)
         {
+            if (!IsJanitorInState(janitor, "AdminIdle"))
+            {
+                return false;
+            }
+
             var state = ReflectionHelpers.GetField(janitor, "m_state");
             var assignedRooms = ReflectionHelpers.GetField(state, "m_assignedRooms") as IList;
             var original = assignedRooms == null ? null : assignedRooms.Cast<object>().ToList();
+            var selected = false;
 
             try
             {
                 InvokeVoid(janitor, "AddAssignedRoom", room);
-                var selected = InvokeBool(janitor, "TryToSelectTileInARoom");
+                selected = InvokeBool(janitor, "TryToSelectTileInARoom");
                 if (selected)
                 {
                     Debug("Janitor selected high-priority OR cleanup room " + Describe(room) + ".");
@@ -525,7 +531,7 @@ namespace ProjectHospital.AutoLabBalancer
             }
             finally
             {
-                if (assignedRooms != null && original != null)
+                if (!selected && assignedRooms != null && original != null)
                 {
                     assignedRooms.Clear();
                     foreach (var item in original)
@@ -534,6 +540,13 @@ namespace ProjectHospital.AutoLabBalancer
                     }
                 }
             }
+        }
+
+        private static bool IsJanitorInState(object janitor, string expectedState)
+        {
+            var state = ReflectionHelpers.GetField(janitor, "m_state");
+            var janitorState = ReflectionHelpers.GetField(state, "m_janitorState");
+            return string.Equals(Convert.ToString(janitorState), expectedState, StringComparison.Ordinal);
         }
 
         private static object FindBestCleanupRoom(object janitor, object department, float now)
