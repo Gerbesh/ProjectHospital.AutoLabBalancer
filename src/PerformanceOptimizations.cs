@@ -174,6 +174,7 @@ namespace ProjectHospital.AutoLabBalancer
     internal static class PerformanceOptimizationService
     {
         private static readonly Dictionary<string, TimedCacheEntry<TileObject>> ObjectSearchCache = new Dictionary<string, TimedCacheEntry<TileObject>>();
+        private static readonly Dictionary<string, TimedCacheEntry<TileObject>> CenterObjectSearchCache = new Dictionary<string, TimedCacheEntry<TileObject>>();
         private static readonly Dictionary<string, TimedCacheEntry<Entity>> EntitySearchCache = new Dictionary<string, TimedCacheEntry<Entity>>();
         private static readonly Dictionary<object, NurseTaskBoardSnapshot> NurseBoards = new Dictionary<object, NurseTaskBoardSnapshot>();
         private static readonly Dictionary<object, BackoffState> SelectNextStepBackoff = new Dictionary<object, BackoffState>();
@@ -201,6 +202,7 @@ namespace ProjectHospital.AutoLabBalancer
 
             _nextCleanupAt = now + 5f;
             Prune(ObjectSearchCache, now);
+            Prune(CenterObjectSearchCache, now);
             Prune(EntitySearchCache, now);
             ReservationBrokerService.Tick(now);
             PruneNurseBoards(now);
@@ -256,6 +258,43 @@ namespace ProjectHospital.AutoLabBalancer
             };
         }
 
+        public static bool TryGetCachedCenterObjectSearch(string methodKey, object[] args, ref TileObject result)
+        {
+            if (!Enabled || !RuntimeSettings.Config.EnableObjectSearchCache.Value)
+            {
+                return false;
+            }
+
+            TimedCacheEntry<TileObject> entry;
+            if (!CenterObjectSearchCache.TryGetValue(BuildKey(methodKey, args), out entry) || Time.realtimeSinceStartup >= entry.ExpiresAt)
+            {
+                return false;
+            }
+
+            if (!IsValidTileObject(entry.Value))
+            {
+                CenterObjectSearchCache.Remove(BuildKey(methodKey, args));
+                return false;
+            }
+
+            result = entry.Value;
+            return true;
+        }
+
+        public static void StoreCenterObjectSearch(string methodKey, object[] args, TileObject result)
+        {
+            if (!Enabled || !RuntimeSettings.Config.EnableObjectSearchCache.Value || !IsValidTileObject(result))
+            {
+                return;
+            }
+
+            CenterObjectSearchCache[BuildKey(methodKey, args)] = new TimedCacheEntry<TileObject>
+            {
+                Value = result,
+                ExpiresAt = Time.realtimeSinceStartup + Mathf.Max(0.05f, RuntimeSettings.Config.ObjectSearchCacheTtlSeconds.Value * 0.5f)
+            };
+        }
+
         public static bool TryGetCachedEntitySearch(MethodBase method, object[] args, ref Entity result)
         {
             if (!Enabled || !RuntimeSettings.Config.EnableDoctorSearchCache.Value)
@@ -270,7 +309,7 @@ namespace ProjectHospital.AutoLabBalancer
                 return false;
             }
 
-            if (!IsValidDoctorEntity(entry.Value, IsFreeDoctorSearch(method, args)))
+            if (!IsValidStaffEntity(entry.Value, IsFreeStaffSearch(method, args)))
             {
                 EntitySearchCache.Remove(key);
                 return false;
@@ -282,7 +321,7 @@ namespace ProjectHospital.AutoLabBalancer
 
         public static void StoreEntitySearch(MethodBase method, object[] args, Entity result)
         {
-            if (!Enabled || !RuntimeSettings.Config.EnableDoctorSearchCache.Value || !IsValidDoctorEntity(result, IsFreeDoctorSearch(method, args)))
+            if (!Enabled || !RuntimeSettings.Config.EnableDoctorSearchCache.Value || !IsValidStaffEntity(result, IsFreeStaffSearch(method, args)))
             {
                 return;
             }
@@ -710,7 +749,7 @@ namespace ProjectHospital.AutoLabBalancer
             return ReflectionHelpers.GetField(instance, name);
         }
 
-        private static bool IsValidFreeObject(TileObject tileObject)
+        private static bool IsValidTileObject(TileObject tileObject)
         {
             if (tileObject == null)
             {
@@ -719,7 +758,7 @@ namespace ProjectHospital.AutoLabBalancer
 
             try
             {
-                if (!tileObject.IsValid() || tileObject.User != null || tileObject.Owner != null)
+                if (!tileObject.IsValid())
                 {
                     return false;
                 }
@@ -734,7 +773,24 @@ namespace ProjectHospital.AutoLabBalancer
             }
         }
 
-        private static bool IsValidDoctorEntity(Entity entity, bool mustBeFree)
+        private static bool IsValidFreeObject(TileObject tileObject)
+        {
+            if (!IsValidTileObject(tileObject))
+            {
+                return false;
+            }
+
+            try
+            {
+                return tileObject.User == null && tileObject.Owner == null;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static bool IsValidStaffEntity(Entity entity, bool mustBeFree)
         {
             if (entity == null)
             {
@@ -753,16 +809,26 @@ namespace ProjectHospital.AutoLabBalancer
                     return true;
                 }
 
-                var doctor = ReflectionHelpers.GetComponentByTypeName(entity, "Lopital.BehaviorDoctor");
-                if (doctor != null)
+                foreach (var typeName in new[]
                 {
-                    return ReflectionHelpers.InvokeBool(doctor, "IsFree") && !ReflectionHelpers.InvokeBool(doctor, "GetReserved");
-                }
+                    "Lopital.BehaviorDoctor",
+                    "Lopital.BehaviorNurse",
+                    "Lopital.BehaviorLabSpecialist",
+                    "Lopital.BehaviorJanitor"
+                })
+                {
+                    var behavior = ReflectionHelpers.GetComponentByTypeName(entity, typeName);
+                    if (behavior == null)
+                    {
+                        continue;
+                    }
 
-                var labSpecialist = ReflectionHelpers.GetComponentByTypeName(entity, "Lopital.BehaviorLabSpecialist");
-                if (labSpecialist != null)
-                {
-                    return ReflectionHelpers.InvokeBool(labSpecialist, "IsFree") && !ReflectionHelpers.InvokeBool(labSpecialist, "GetReserved");
+                    if (!mustBeFree)
+                    {
+                        return true;
+                    }
+
+                    return ReflectionHelpers.InvokeBool(behavior, "IsFree") && !ReflectionHelpers.InvokeBool(behavior, "GetReserved");
                 }
 
                 return false;
@@ -773,7 +839,7 @@ namespace ProjectHospital.AutoLabBalancer
             }
         }
 
-        private static bool IsFreeDoctorSearch(MethodBase method, object[] args)
+        private static bool IsFreeStaffSearch(MethodBase method, object[] args)
         {
             if (method != null && method.Name.IndexOf("Free", StringComparison.OrdinalIgnoreCase) >= 0)
             {
@@ -1035,6 +1101,47 @@ namespace ProjectHospital.AutoLabBalancer
     }
 
     [HarmonyPatch]
+    internal static class CenterObjectSearchCachePatch
+    {
+        private static IEnumerable<MethodBase> TargetMethods()
+        {
+            var type = AccessTools.TypeByName("Lopital.MapScriptInterface");
+            if (type == null)
+            {
+                yield break;
+            }
+
+            foreach (var method in type.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+            {
+                if ((method.Name == "FindClosestCenterObjectWithTag"
+                        || method.Name == "FindClosestCenterObjectWithTagShortestPath"
+                        || method.Name == "FindClosestObjectWithTag"
+                        || method.Name == "FindClosestObjectWithTags")
+                    && method.ReturnType == typeof(TileObject))
+                {
+                    yield return method;
+                }
+            }
+        }
+
+        private static bool Prefix(MethodBase __originalMethod, object[] __args, ref TileObject __result)
+        {
+            var key = __originalMethod == null
+                ? "MapScriptInterface.CenterObject#unknown"
+                : "MapScriptInterface." + __originalMethod.Name + "#" + __originalMethod.GetParameters().Length;
+            return !PerformanceOptimizationService.TryGetCachedCenterObjectSearch(key, __args, ref __result);
+        }
+
+        private static void Postfix(MethodBase __originalMethod, object[] __args, TileObject __result)
+        {
+            var key = __originalMethod == null
+                ? "MapScriptInterface.CenterObject#unknown"
+                : "MapScriptInterface." + __originalMethod.Name + "#" + __originalMethod.GetParameters().Length;
+            PerformanceOptimizationService.StoreCenterObjectSearch(key, __args, __result);
+        }
+    }
+
+    [HarmonyPatch]
     internal static class SelectNextStepBackoffPatch
     {
         private static MethodBase TargetMethod()
@@ -1189,11 +1296,38 @@ namespace ProjectHospital.AutoLabBalancer
 
             foreach (var method in type.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
             {
-                if ((method.Name == "FindClosestDoctorWithQualification" || method.Name == "FindClosestFreeDoctorWithQualification")
+                if (ShouldCacheStaffSearch(method)
                     && method.ReturnType == typeof(Entity))
                 {
                     yield return method;
                 }
+            }
+        }
+
+        private static bool ShouldCacheStaffSearch(MethodInfo method)
+        {
+            if (method == null)
+            {
+                return false;
+            }
+
+            switch (method.Name)
+            {
+                case "FindClosestDoctorWithQualification":
+                case "FindClosestFreeDoctorWithQualification":
+                case "FindClosestNurseWithQualification":
+                case "FindClosestFreeNurseWithQualification":
+                case "FindClosestFreeMedicalEmployee":
+                case "FindLabSpecialistAssingedToARoomTag":
+                case "FindLabSpecialistAssingedToARoomTagLowestWorkload":
+                case "FindLabSpecialistAssingedToARoomType":
+                case "FindLabSpecialistAssingedToRoom":
+                case "FindJanitorAssignedAssignedToRoom":
+                case "FindJanitorAssignedToARoomTagLowestWorkload":
+                case "FindJanitorAssignedToARoomType":
+                    return true;
+                default:
+                    return false;
             }
         }
 
