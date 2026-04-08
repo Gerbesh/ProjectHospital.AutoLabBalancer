@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using HarmonyLib;
+using Lopital;
 
 namespace ProjectHospital.AutoLabBalancer
 {
@@ -430,6 +431,11 @@ namespace ProjectHospital.AutoLabBalancer
 
             try
             {
+                if (TryDowngradeIcuAfterNurseCheck(hospitalization))
+                {
+                    return;
+                }
+
                 if (!CanDischargeAfterNurseCheck(hospitalization))
                 {
                     return;
@@ -449,6 +455,87 @@ namespace ProjectHospital.AutoLabBalancer
             {
                 LogError("Nurse-check discharge failed: " + ex);
             }
+        }
+
+        private static bool TryDowngradeIcuAfterNurseCheck(object hospitalization)
+        {
+            var state = ReflectionHelpers.GetField(hospitalization, "m_state");
+            if (state == null
+                || Equals(ReflectionHelpers.GetField(state, "m_oustideRoom"), true)
+                || !IsIcuHospitalization(state)
+                || !InvokeBool(hospitalization, "IsNothingPlanned")
+                || InvokeBool(hospitalization, "WillCollapse")
+                || !HasNoProcedureReservation(state))
+            {
+                return false;
+            }
+
+            var entity = GetEntityFromComponent(hospitalization);
+            var patient = ReflectionHelpers.GetComponentByTypeName(entity, "Lopital.BehaviorPatient") as BehaviorPatient;
+            if (patient == null || IsPatientGone(patient) || patient.GetControlMode() != PatientControlMode.AI)
+            {
+                return false;
+            }
+
+            if (HasHighKnownHazard(entity, patient))
+            {
+                return false;
+            }
+
+            var targetDepartment = GetLeastBusyProfileDepartment(patient);
+            if (targetDepartment == null)
+            {
+                return false;
+            }
+
+            if (patient.GetDepartment() != targetDepartment)
+            {
+                patient.ChangeDepartment(targetDepartment, checkHospitalizationPlace: false);
+            }
+
+            InvokeVoid(hospitalization, "HospitalizationChange");
+            Debug("Nurse-check downgraded ICU patient " + Describe(entity) + " to " + Describe(targetDepartment) + ".");
+            return true;
+        }
+
+        private static bool HasNoProcedureReservation(object hospitalizationState)
+        {
+            var reservationStatus = ReflectionHelpers.GetField(hospitalizationState, "m_procedureReservationStatus");
+            return reservationStatus == null || string.Equals(reservationStatus.ToString(), "NONE", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool HasHighKnownHazard(object entity, BehaviorPatient patient)
+        {
+            var procedure = ReflectionHelpers.GetComponentByTypeName(entity, "Lopital.ProcedureComponent");
+            var queue = GetProcedureQueue(procedure);
+            var patientState = ReflectionHelpers.GetField(patient, "m_state");
+            var medicalCondition = ReflectionHelpers.GetField(patientState, "m_medicalCondition");
+            if (medicalCondition == null || queue == null)
+            {
+                return true;
+            }
+
+            var procedureQueueType = AccessTools.TypeByName("Lopital.ProcedureQueue");
+            var worstKnownHazard = procedureQueueType == null ? null : AccessTools.Method(medicalCondition.GetType(), "GetWorstKnownHazard", new[] { procedureQueueType });
+            var hazard = worstKnownHazard == null ? null : worstKnownHazard.Invoke(medicalCondition, new[] { queue });
+            return hazard == null || string.Equals(hazard.ToString(), "High", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static Department GetLeastBusyProfileDepartment(BehaviorPatient patient)
+        {
+            var profileDepartmentType = patient.BelongsToDepartment();
+            if (profileDepartmentType == null)
+            {
+                return null;
+            }
+
+            var targetDepartment = MapScriptInterface.Instance.GetLeastBusyDepartmentOfType(profileDepartmentType);
+            if (targetDepartment == null || ReferenceEquals(targetDepartment.GetDepartmentType(), GetDatabaseEntry("GameDBDepartment", "DPT_ICU")))
+            {
+                return null;
+            }
+
+            return targetDepartment;
         }
 
         private static bool CanDischargeAfterNurseCheck(object hospitalization)

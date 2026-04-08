@@ -284,17 +284,52 @@ Require-Method "Lopital.WalkComponent" "SetDestination" @("GLib.Vector2i", "Syst
 Require-Method "Lopital.WalkComponent" "SetDestination" @("GLib.Vector2f", "System.Int32", "Lopital.MovementType") | Out-Null
 Require-Method "Lopital.ProcedureComponent" "ReserveExamination" @("GameDBExamination", "GLib.Entity", "Lopital.Department", "Lopital.Room", "Lopital.AccessRights") "Lopital.ProcedureSceneAvailability" | Out-Null
 Require-Method "Lopital.ProcedureComponent" "ReserveProcedure" @("GameDBProcedure", "GLib.Entity", "Lopital.Department", "Lopital.Room", "Lopital.AccessRights", "System.String", "System.Boolean") "Lopital.ProcedureSceneAvailability" | Out-Null
+Require-EnumValues "Lopital.ProcedureSceneAvailability" @("AVAILABLE", "STAFF_BUSY", "STAFF_UNAVAILABLE", "STAFF_UNAVAILABLE_LAB", "EQUIPMENT_BUSY", "EQUIPMENT_UNAVAILABLE", "NO_ROOM") | Out-Null
+Require-Method "Lopital.LabProcedureManager" "GetFirstIdleLabProcedure" @("Lopital.Department") "Lopital.LabProcedure" | Out-Null
+Require-Method "Lopital.LabProcedureManager" "GetIdleLabProcedures" @("Lopital.Department", "Lopital.Room", "System.Boolean", "System.Boolean") | Out-Null
+Require-AnyMethod "Lopital.LabProcedureManager" "AddLabProcedure" | Out-Null
+Require-Method "Lopital.LabProcedureManager" "Reset" @() | Out-Null
+Require-Method "Lopital.LabProcedure" "IsIdle" @() "System.Boolean" | Out-Null
+Require-EnumValues "Lopital.LabProcedureState" @("SamplingFinished", "DeliveredToStatLab", "ReadyForTesting", "ReservedForTesting", "BeingTested", "ProcessingResults", "ResultsReady", "Finished") | Out-Null
 Require-Method "Lopital.BehaviorPatient" "UpdateStateWaitingSitting" @("System.Single") | Out-Null
 Require-Method "Lopital.BehaviorPatient" "FindDoctorOrLabSpecialist" @("System.Boolean") | Out-Null
 Require-AnyMethod "Lopital.MapScriptInterface" "FindClosestDoctorWithQualification" | Out-Null
 Require-AnyMethod "Lopital.MapScriptInterface" "FindClosestFreeDoctorWithQualification" | Out-Null
 Require-Method "Lopital.BehaviorNurse" "IsFree" @() "System.Boolean" | Out-Null
 Require-Method "Lopital.BehaviorNurse" "GetReserved" @() "System.Boolean" | Out-Null
+Require-Method "Lopital.BehaviorNurse" "CheckNeeds" @("Lopital.AccessRights", "System.Boolean") "System.Boolean" | Out-Null
+Require-Method "Lopital.BehaviorNurse" "SwitchState" @("Lopital.NurseState") | Out-Null
+Require-EnumValues "Lopital.NurseState" @("Idle", "FulfillingNeeds") | Out-Null
 Require-Method "Lopital.BehaviorDoctor" "IsFree" @() "System.Boolean" | Out-Null
 Require-Method "Lopital.BehaviorDoctor" "GetReserved" @() "System.Boolean" | Out-Null
+Require-Method "Lopital.BehaviorDoctor" "CheckNeeds" @("Lopital.AccessRights") "System.Boolean" | Out-Null
+Require-Method "Lopital.BehaviorDoctor" "SwitchState" @("Lopital.DoctorState") | Out-Null
+Require-EnumValues "Lopital.DoctorState" @("Idle", "FulfilingNeeds") | Out-Null
+Require-Method "Lopital.BehaviorLabSpecialist" "CheckNeeds" @("Lopital.AccessRights") "System.Boolean" | Out-Null
+Require-Method "Lopital.BehaviorLabSpecialist" "SwitchState" @("Lopital.LabSpecialistState") | Out-Null
+Require-EnumValues "Lopital.LabSpecialistState" @("Idle", "FulfillingNeeds") | Out-Null
+Require-Method "Lopital.BehaviorJanitor" "CheckNeeds" @() "System.Boolean" | Out-Null
+Require-Method "Lopital.BehaviorJanitor" "SwitchState" @("Lopital.BehaviorJanitorState") | Out-Null
+Require-EnumValues "Lopital.BehaviorJanitorState" @("AdminIdle", "Cleaning", "FulfillingNeeds") | Out-Null
+Require-Field "Lopital.MoodComponent" "m_state" | Out-Null
+Require-Field "Lopital.Mood" "m_needs" | Out-Null
+Require-Field "Lopital.Need" "m_currentValue" | Out-Null
 Require-Method "Lopital.EmployeeComponent" "ComputeSalary" @() | Out-Null
+Require-Method "Lopital.EmployeeComponent" "HasRole" @("GameDBEmployeeRole") "System.Boolean" | Out-Null
 Require-Field "Lopital.EmployeeComponent" "m_state" | Out-Null
 Require-Field "Lopital.EmployeeComponentPersistentData" "m_salary" | Out-Null
+Require-Field "Lopital.EmployeeComponentPersistentData" "m_startDay" | Out-Null
+Require-Field "Lopital.EmployeeComponentPersistentData" "m_skillSet" | Out-Null
+Require-Field "Lopital.SkillSet" "m_qualifications" | Out-Null
+Require-Field "Lopital.SkillSet" "m_specialization1" | Out-Null
+Require-Field "Lopital.SkillSet" "m_specialization2" | Out-Null
+Require-Field "Lopital.Skill" "m_level" | Out-Null
+Require-Method "Lopital.PerkSet" "RevealFirstHiddenPerk" @() "Lopital.Perk" | Out-Null
+Require-Method "Lopital.PerkSet" "GetHiddenPerkCount" @() "System.Int32" | Out-Null
+Require-Method "HiringCardCharacterPanelController" "FillPersonalInfo" @("GLib.Entity") | Out-Null
+Require-Method "HiringCardCharacterPanelController" "GetSkillLevelText" @("Lopital.Skill") "System.String" | Out-Null
+Require-Method "CharacterPanelSkillPanelController" "UpdateSkills" @("Lopital.EmployeeComponent") | Out-Null
+Require-Method "SkillLevelSegmentController" "UpdateData" @("Lopital.Skill") | Out-Null
 Require-Method "Lopital.MedicalCondition" "ResetCollapseTimes" @("Lopital.BehaviorPatient") | Out-Null
 Require-Field "Lopital.MedicalCondition" "m_symptoms" | Out-Null
 Require-Field "Lopital.Symptom" "m_collapseTriggerTimeHours" | Out-Null
@@ -335,16 +370,21 @@ Require-Field "Lopital.BehaviorPatientStateData" "m_deathTriggered" | Out-Null
 Require-Field "Lopital.ProcedureQueue" "m_plannedExaminationStates" | Out-Null
 Require-Field "PlannedExaminationState" "m_examination" | Out-Null
 Require-Field "PlannedExaminationState" "m_reservationStatus" | Out-Null
-Require-EnumValues "Lopital.ProcedureReservationStatus" @("WAITING_FOR_ROOM_EXM", "WAITING_FOR_ROOM_TRT", "WAITING_FOR_ROOM_SURG", "WAITING_FOR_STAFF_EXM", "WAITING_FOR_STAFF_TRT", "WAITING_FOR_STAFF_SURG", "WAITING_FOR_TRANSPORT_EXM", "WAITING_FOR_TRANSPORT_TRT", "WAITING_FOR_TRANSPORT_SURG", "WAITING_FOR_CRITICAL_PATIENTS") | Out-Null
+Require-EnumValues "Lopital.ProcedureReservationStatus" @("NONE", "WAITING_FOR_ROOM_EXM", "WAITING_FOR_ROOM_TRT", "WAITING_FOR_ROOM_SURG", "WAITING_FOR_STAFF_EXM", "WAITING_FOR_STAFF_TRT", "WAITING_FOR_STAFF_SURG", "WAITING_FOR_TRANSPORT_EXM", "WAITING_FOR_TRANSPORT_TRT", "WAITING_FOR_TRANSPORT_SURG", "WAITING_FOR_CRITICAL_PATIENTS") | Out-Null
 Require-EnumValues "Lopital.PatientState" @("Left", "OverriddenByHospitalization") | Out-Null
 Require-EnumValues "Lopital.HospitalizationState" @("OverridenByNurseCheckUp", "InBed", "Leaving") | Out-Null
 Require-EnumValues "Lopital.PatientControlMode" @("AI", "PlayerControl") | Out-Null
 Require-Method "Lopital.HospitalizationComponent" "SwitchState" @("Lopital.HospitalizationState") | Out-Null
+Require-Method "Lopital.HospitalizationComponent" "HospitalizationChange" @() | Out-Null
 Require-Method "Lopital.HospitalizationComponent" "SendHome" @() | Out-Null
 Require-Method "Lopital.HospitalizationComponent" "StopMonitoring" @() | Out-Null
 Require-Method "Lopital.HospitalizationComponent" "IsHospitalizationTimeOver" @() "System.Boolean" | Out-Null
 Require-Method "Lopital.HospitalizationComponent" "IsNothingPlanned" @() "System.Boolean" | Out-Null
 Require-Method "Lopital.BehaviorPatient" "GetControlMode" @() "Lopital.PatientControlMode" | Out-Null
+Require-Method "Lopital.BehaviorPatient" "BelongsToDepartment" @() "GameDBDepartment" | Out-Null
+Require-Method "Lopital.BehaviorPatient" "GetDepartment" @() "Lopital.Department" | Out-Null
+Require-Method "Lopital.BehaviorPatient" "ChangeDepartment" @("Lopital.Department", "System.Boolean", "System.Boolean", "HospitalizationLevel") | Out-Null
+Require-Method "Lopital.MapScriptInterface" "GetLeastBusyDepartmentOfType" @("GameDBDepartment") "Lopital.Department" | Out-Null
 
 Write-Host "Section: Referrals"
 # Referrals
@@ -447,8 +487,17 @@ Require-Field "Lopital.InsuranceManager" "m_state" | Out-Null
 Require-Field "Lopital.InsuranceManagerPersistentData" "m_insuranceCompanies" | Out-Null
 Require-Field "Lopital.InsuranceCompany" "m_currentPatients" | Out-Null
 Require-Field "Lopital.InsuranceCompany" "m_currentImmobilePatients" | Out-Null
+Require-Field "Lopital.InsuranceCompany" "m_patientsSpawnedOutpatients" | Out-Null
 Require-Method "Lopital.InsuranceCompany" "IsContracted" @() "System.Boolean" | Out-Null
+Require-Method "Lopital.InsuranceCompany" "AddGeneratedPatient" @("System.Int32", "System.Int32", "PatientMobility", "System.Boolean") | Out-Null
+Require-Method "Lopital.InsuranceCompany" "GetVisitTime" @("System.Single", "System.Single", "System.Boolean", "Lopital.Department") "System.Single" | Out-Null
+Require-Method "Lopital.Hospital" "GetRandomDepartmentWithDiagnoses" @("PatientMobility") "Lopital.Department" | Out-Null
 Require-Method "Lopital.Department" "AcceptsOutpatients" @() "System.Boolean" | Out-Null
+Require-Method "Lopital.Department" "IsClosed" @() "System.Boolean" | Out-Null
+Require-Method "Lopital.Department" "GetDepartmentType" @() "GameDBDepartment" | Out-Null
+Require-Field "Lopital.DepartmentPersistentData" "m_departmentValidity" | Out-Null
+Require-Property "GameDBDepartment" "PatientGenerationWeight" | Out-Null
+Require-Property "GameDBDepartment" "DiagnosisRandomizerMobile" | Out-Null
 
 Write-Host "Section: Summary"
 if ($script:Failures.Count -gt 0) {

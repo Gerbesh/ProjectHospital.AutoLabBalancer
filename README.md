@@ -6,6 +6,7 @@ Probe BepInEx 5 plugin for Project Hospital Unity Mono.
 
 - Runs as a local BepInEx plugin.
 - If `PreventNegativeEmployeePerks=true`, removes generated negative employee perks after staff perk generation and after character editor fill.
+- If `EnableUnknownEmployees=true`, hiring candidates hide skill levels and employee perks; generated skill levels are randomized independently from hiring level/salary, hired employees reveal skills after 3-7 in-game days, and hidden perks reveal one at a time every 5 in-game days.
 - Productivity Tweaks:
   - after diagnosis, plans all available prescription/receipt treatments for known active symptoms when `EnableAggressiveMedicationPlanning=true`;
   - limits aggressive medication planning with `MaxAutoMedicationsPerPlan` and `MaxPlannedMedicationsPerPatient`;
@@ -57,6 +58,7 @@ ORCleanupPriorityDurationSeconds = 300
 NurseORCleanupMaxDurationSeconds = 45
 SuppressFreeTimeWhenDepartmentBusy = true
 EnableDebugProductivityLog = false
+EnableUnknownEmployees = false
 
 [Overlay]
 EnableBottleneckOverlay = true

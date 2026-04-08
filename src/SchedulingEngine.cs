@@ -54,6 +54,10 @@ namespace ProjectHospital.AutoLabBalancer
     internal sealed class SchedulingDepartmentBoard
     {
         public object Department;
+        public int BoardVersion;
+        public float BuiltAt;
+        public float ExpiresAt;
+        public int StateSignature;
         public int Score;
         public int NurseScore;
         public int DoctorScore;
@@ -75,6 +79,7 @@ namespace ProjectHospital.AutoLabBalancer
         public int NurseDryRunDispatches;
         public int DoctorDryRunDispatches;
         public readonly List<SchedulingTask> Tasks = new List<SchedulingTask>();
+        public readonly List<SchedulingTask> PersonalNeedsQueue = new List<SchedulingTask>();
         public readonly List<SchedulingStaffCandidate> StaffCandidates = new List<SchedulingStaffCandidate>();
         public readonly List<SchedulingDispatchRecommendation> DispatchRecommendations = new List<SchedulingDispatchRecommendation>();
 
@@ -119,7 +124,10 @@ namespace ProjectHospital.AutoLabBalancer
     {
         public bool Ready;
         public string Warning;
+        public int BoardVersion;
         public float BuiltAt;
+        public float ExpiresAt;
+        public int StateSignature;
         public double RebuildMs;
         public int Departments;
         public int DepartmentBoards;
@@ -165,6 +173,14 @@ namespace ProjectHospital.AutoLabBalancer
         public long DispatcherApplyChecks;
         public long DispatcherApplyAllows;
         public long DispatcherApplySkips;
+        public long TaskBoardValidationFails;
+        public long TaskBoardClaimSkips;
+        public long ReservationBrokerAvailableDrops;
+        public long ReservationBrokerDisabled;
+        public long ReservationBrokerStaffUnavailableStores;
+        public long ReservationBrokerRoomUnavailableStores;
+        public long ReservationBrokerEquipmentUnavailableStores;
+        public long ReservationBrokerOtherFailureStores;
     }
 
     internal static class SchedulingEngineService
@@ -189,6 +205,9 @@ namespace ProjectHospital.AutoLabBalancer
         private static long _dispatcherApplyChecks;
         private static long _dispatcherApplyAllows;
         private static long _dispatcherApplySkips;
+        private static long _taskBoardV2ValidationFails;
+        private static long _taskBoardV2ClaimSkips;
+        private static int _boardVersion;
 
         public static SchedulingSnapshot Snapshot
         {
@@ -207,7 +226,7 @@ namespace ProjectHospital.AutoLabBalancer
             {
                 return RuntimeSettings.Config != null
                     && RuntimeSettings.Config.Enabled.Value
-                    && RuntimeSettings.Config.EnableSchedulingEngine.Value;
+                    && RuntimeSettings.Config.EnablePerformanceOptimizations.Value;
             }
         }
 
@@ -290,6 +309,12 @@ namespace ProjectHospital.AutoLabBalancer
                 return false;
             }
 
+            if (!IsBoardStillValid(board, department))
+            {
+                Interlocked.Increment(ref _taskBoardV2ValidationFails);
+                return false;
+            }
+
             var staffIsInBoard = false;
             for (var i = 0; i < board.StaffCandidates.Count; i++)
             {
@@ -313,10 +338,21 @@ namespace ProjectHospital.AutoLabBalancer
                 if (ReferenceEquals(candidate.Staff, staff)
                     && string.Equals(candidate.StaffRole, role, StringComparison.OrdinalIgnoreCase))
                 {
+                    if (!IsRecommendationStillValid(candidate, staff, department))
+                    {
+                        Interlocked.Increment(ref _taskBoardV2ValidationFails);
+                        return false;
+                    }
+
                     recommendation = candidate;
                     allowed = true;
                     return true;
                 }
+            }
+
+            if (HasVisibleWorkForRole(board, role))
+            {
+                return false;
             }
 
             return true;
@@ -384,10 +420,18 @@ namespace ProjectHospital.AutoLabBalancer
                     ReservationBrokerHits = broker.Hits,
                     ReservationBrokerMisses = broker.Misses,
                     ReservationBrokerStores = broker.Stores,
+                    ReservationBrokerAvailableDrops = broker.AvailableDrops,
+                    ReservationBrokerDisabled = broker.Disabled,
+                    ReservationBrokerStaffUnavailableStores = broker.StaffUnavailableStores,
+                    ReservationBrokerRoomUnavailableStores = broker.RoomUnavailableStores,
+                    ReservationBrokerEquipmentUnavailableStores = broker.EquipmentUnavailableStores,
+                    ReservationBrokerOtherFailureStores = broker.OtherFailureStores,
                     DispatcherRecommendations = _snapshot == null ? 0 : _snapshot.DispatchRecommendations,
                     DispatcherApplyChecks = Interlocked.Read(ref _dispatcherApplyChecks),
                     DispatcherApplyAllows = Interlocked.Read(ref _dispatcherApplyAllows),
-                    DispatcherApplySkips = Interlocked.Read(ref _dispatcherApplySkips)
+                    DispatcherApplySkips = Interlocked.Read(ref _dispatcherApplySkips),
+                    TaskBoardValidationFails = Interlocked.Read(ref _taskBoardV2ValidationFails),
+                    TaskBoardClaimSkips = Interlocked.Read(ref _taskBoardV2ClaimSkips)
                 };
             }
         }
@@ -411,6 +455,8 @@ namespace ProjectHospital.AutoLabBalancer
                 Interlocked.Exchange(ref _dispatcherApplyChecks, 0);
                 Interlocked.Exchange(ref _dispatcherApplyAllows, 0);
                 Interlocked.Exchange(ref _dispatcherApplySkips, 0);
+                Interlocked.Exchange(ref _taskBoardV2ValidationFails, 0);
+                Interlocked.Exchange(ref _taskBoardV2ClaimSkips, 0);
                 ReservationBrokerService.ResetCounters();
             }
         }
@@ -418,7 +464,12 @@ namespace ProjectHospital.AutoLabBalancer
         private static void Rebuild(float now)
         {
             var start = Stopwatch.GetTimestamp();
-            var snapshot = new SchedulingSnapshot { BuiltAt = now };
+            var snapshot = new SchedulingSnapshot
+            {
+                BoardVersion = ++_boardVersion,
+                BuiltAt = now,
+                ExpiresAt = now + Mathf.Max(0.05f, RuntimeSettings.Config == null ? 1.5f : RuntimeSettings.Config.SchedulingEngineMaxSnapshotAgeSeconds.Value)
+            };
 
             try
             {
@@ -476,7 +527,13 @@ namespace ProjectHospital.AutoLabBalancer
                 }
 
                 snapshot.Departments++;
-                snapshot.Boards[department] = new SchedulingDepartmentBoard { Department = department };
+                snapshot.Boards[department] = new SchedulingDepartmentBoard
+                {
+                    Department = department,
+                    BoardVersion = snapshot.BoardVersion,
+                    BuiltAt = snapshot.BuiltAt,
+                    ExpiresAt = snapshot.ExpiresAt
+                };
             }
         }
 
@@ -574,9 +631,11 @@ namespace ProjectHospital.AutoLabBalancer
             }
 
             board.PersonalNeedsTasks++;
-            board.Score += 2;
-            AddTask(board, staffEntity, role, SchedulingTaskType.PersonalNeeds, 2, null);
-            AddRoleScore(board, role, 2);
+            var task = CreateTask(board, staffEntity, role, SchedulingTaskType.PersonalNeeds, 2, null);
+            if (task != null)
+            {
+                board.PersonalNeedsQueue.Add(task);
+            }
         }
 
         private static void AddRoleScore(SchedulingDepartmentBoard board, string role, int score)
@@ -793,12 +852,21 @@ namespace ProjectHospital.AutoLabBalancer
 
         private static void AddTask(SchedulingDepartmentBoard board, object patient, string requiredRole, SchedulingTaskType type, int priority, object targetProcedure)
         {
+            var task = CreateTask(board, patient, requiredRole, type, priority, targetProcedure);
+            if (task != null)
+            {
+                board.Tasks.Add(task);
+            }
+        }
+
+        private static SchedulingTask CreateTask(SchedulingDepartmentBoard board, object patient, string requiredRole, SchedulingTaskType type, int priority, object targetProcedure)
+        {
             if (board == null || patient == null)
             {
-                return;
+                return null;
             }
 
-            board.Tasks.Add(new SchedulingTask
+            return new SchedulingTask
             {
                 TaskId = BuildTaskId(patient, requiredRole, type, targetProcedure),
                 Patient = patient,
@@ -807,8 +875,8 @@ namespace ProjectHospital.AutoLabBalancer
                 Type = type,
                 Priority = priority,
                 TargetProcedure = targetProcedure,
-                ExpiresAt = Time.realtimeSinceStartup + 2f
-            });
+                ExpiresAt = board.ExpiresAt > 0f ? board.ExpiresAt : Time.realtimeSinceStartup + 2f
+            };
         }
 
         private static void AddStaffCandidate(SchedulingDepartmentBoard board, object staff, string role)
@@ -838,6 +906,11 @@ namespace ProjectHospital.AutoLabBalancer
             foreach (var pair in snapshot.Boards)
             {
                 var board = pair.Value;
+                board.StateSignature = BuildBoardSignature(board);
+                unchecked
+                {
+                    snapshot.StateSignature = (snapshot.StateSignature * 397) ^ board.StateSignature;
+                }
                 BuildDispatchRecommendations(board);
                 snapshot.DepartmentBoards++;
                 snapshot.TotalTasks += board.TotalTasks;
@@ -906,6 +979,7 @@ namespace ProjectHospital.AutoLabBalancer
             }
 
             var usedStaff = new HashSet<object>(ReferenceEqualityComparer.Instance);
+            var usedTasks = new HashSet<string>();
             for (var pick = 0; pick < board.StaffCandidates.Count; pick++)
             {
                 SchedulingTask bestTask = null;
@@ -921,6 +995,17 @@ namespace ProjectHospital.AutoLabBalancer
                     for (var t = 0; t < board.Tasks.Count; t++)
                     {
                         var task = board.Tasks[t];
+                        if (task.ExpiresAt > 0f && Time.realtimeSinceStartup >= task.ExpiresAt)
+                        {
+                            continue;
+                        }
+
+                        if (usedTasks.Contains(task.TaskId))
+                        {
+                            Interlocked.Increment(ref _taskBoardV2ClaimSkips);
+                            continue;
+                        }
+
                         if (!CanHandleTask(staff, task))
                         {
                             continue;
@@ -940,6 +1025,8 @@ namespace ProjectHospital.AutoLabBalancer
                 }
 
                 usedStaff.Add(bestStaff.Staff);
+                usedTasks.Add(bestTask.TaskId);
+
                 board.DispatchRecommendations.Add(new SchedulingDispatchRecommendation
                 {
                     Staff = bestStaff.Staff,
@@ -964,6 +1051,125 @@ namespace ProjectHospital.AutoLabBalancer
             return string.Equals(task.RequiredRole, "doctor", StringComparison.OrdinalIgnoreCase)
                 && string.Equals(staff.Role, "lab", StringComparison.OrdinalIgnoreCase)
                 && task.Type == SchedulingTaskType.WaitingPatient;
+        }
+
+        private static bool HasVisibleWorkForRole(SchedulingDepartmentBoard board, string role)
+        {
+            if (board == null || string.IsNullOrEmpty(role))
+            {
+                return false;
+            }
+
+            if (string.Equals(role, "lab", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            if (string.Equals(role, "doctor", StringComparison.OrdinalIgnoreCase))
+            {
+                return board.DoctorScore > 0 || board.CriticalPatients > 0 || board.WaitingPatients > 0 || board.PlannedSurgeryPatients > 0;
+            }
+
+            if (string.Equals(role, "nurse", StringComparison.OrdinalIgnoreCase))
+            {
+                return board.NurseScore > 0
+                    || board.CriticalPatients > 0
+                    || board.CollapseCareTasks > 0
+                    || board.PlannedSurgeryPatients > 0
+                    || HasDepartmentSurgeryDemand(board.Department);
+            }
+
+            if (string.Equals(role, "janitor", StringComparison.OrdinalIgnoreCase))
+            {
+                return board.JanitorScore > 0 || board.CleaningTasks > 0;
+            }
+
+            return board.Score > 0;
+        }
+
+        private static bool IsBoardStillValid(SchedulingDepartmentBoard board, object department)
+        {
+            return board != null
+                && ReferenceEquals(board.Department, department)
+                && board.ExpiresAt > Time.realtimeSinceStartup
+                && board.StateSignature == BuildBoardSignature(board);
+        }
+
+        private static bool HasDepartmentSurgeryDemand(object department)
+        {
+            return department != null
+                && (ReflectionHelpers.InvokeBool(department, "HasWaitingSurgery")
+                    || ReflectionHelpers.InvokeBool(department, "HasAnyCriticalSurgeryScheduled"));
+        }
+
+        private static bool IsRecommendationStillValid(SchedulingDispatchRecommendation recommendation, object staff, object department)
+        {
+            if (recommendation == null
+                || recommendation.Task == null
+                || !ReferenceEquals(recommendation.Staff, staff)
+                || !ReferenceEquals(recommendation.Task.Department, department)
+                || recommendation.Task.ExpiresAt <= Time.realtimeSinceStartup
+                || !IsObjectStillAlive(recommendation.Task.Patient)
+                || (recommendation.Task.TargetProcedure != null && !IsObjectStillAlive(recommendation.Task.TargetProcedure)))
+            {
+                return false;
+            }
+
+            var currentDepartment = GetEmployeeDepartment(staff);
+            if (!ReferenceEquals(currentDepartment, department))
+            {
+                return false;
+            }
+
+            foreach (var typeName in new[]
+            {
+                "Lopital.BehaviorDoctor",
+                "Lopital.BehaviorNurse",
+                "Lopital.BehaviorLabSpecialist",
+                "Lopital.BehaviorJanitor"
+            })
+            {
+                var behavior = ReflectionHelpers.GetComponentByTypeName(staff, typeName);
+                if (behavior != null)
+                {
+                    return IsFreeBehavior(behavior);
+                }
+            }
+
+            return true;
+        }
+
+        private static bool IsObjectStillAlive(object value)
+        {
+            if (value == null)
+            {
+                return false;
+            }
+
+            if (ReflectionHelpers.InvokeBool(value, "IsValid"))
+            {
+                return true;
+            }
+
+            var entity = ReflectionHelpers.GetField(value, "m_entity");
+            return entity == null || ReflectionHelpers.InvokeBool(entity, "IsValid");
+        }
+
+        private static int BuildBoardSignature(SchedulingDepartmentBoard board)
+        {
+            unchecked
+            {
+                var hash = 17;
+                hash = (hash * 31) + board.Tasks.Count;
+                hash = (hash * 31) + board.StaffCandidates.Count;
+                hash = (hash * 31) + board.Score;
+                hash = (hash * 31) + board.NurseScore;
+                hash = (hash * 31) + board.DoctorScore;
+                hash = (hash * 31) + board.JanitorScore;
+                hash = (hash * 31) + board.CleaningTasks;
+                hash = (hash * 31) + board.PersonalNeedsTasks;
+                return hash;
+            }
         }
 
         private static int CountRecommendations(SchedulingDepartmentBoard board, string role)

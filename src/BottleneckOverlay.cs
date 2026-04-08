@@ -52,6 +52,8 @@ namespace ProjectHospital.AutoLabBalancer
         public int IntakeAmbulancePatients;
         public int IntakeAmbulanceCapacity;
         public int IntakeOutpatientDoctorCapacity;
+        public int IntakeDynamicDepartmentChoices;
+        public int IntakeDirectDepartmentReferrals;
         public string SurgeryReadinessDetails;
         public string JanitorDiagnostics;
     }
@@ -713,6 +715,8 @@ namespace ProjectHospital.AutoLabBalancer
             snapshot.IntakeAmbulancePatients = intake.CurrentAmbulancePatients;
             snapshot.IntakeAmbulanceCapacity = intake.AmbulanceCapacity;
             snapshot.IntakeOutpatientDoctorCapacity = intake.OutpatientDoctors;
+            snapshot.IntakeDynamicDepartmentChoices = intake.DynamicDepartmentChoices;
+            snapshot.IntakeDirectDepartmentReferrals = intake.DirectDepartmentReferrals;
         }
 
         private static void CountHospitalizationStatus(object character, BottleneckSnapshot snapshot)

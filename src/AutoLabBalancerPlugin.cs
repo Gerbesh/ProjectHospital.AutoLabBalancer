@@ -16,7 +16,7 @@ namespace ProjectHospital.AutoLabBalancer
     {
         public const string PluginGuid = "local.projecthospital.autolabbalancer";
         public const string PluginName = "Project Hospital Productivity Tweaks";
-        public const string PluginVersion = "0.17.6";
+        public const string PluginVersion = "0.18.0";
 
         private AutoLabBalancerConfig _config;
         private Harmony _harmony;
@@ -78,6 +78,7 @@ namespace ProjectHospital.AutoLabBalancer
             {
                 PerformanceOptimizationService.Tick(Time.realtimeSinceStartup);
                 ProductivityTweaksService.Tick(Time.realtimeSinceStartup);
+                UnknownEmployeeService.Tick(Time.realtimeSinceStartup);
                 IntakeControlService.ApplyDailyCap();
                 TickSurgeryAnalytics();
             }
@@ -229,6 +230,8 @@ namespace ProjectHospital.AutoLabBalancer
 
             GUILayout.Space(8f);
             GUILayout.Label(ModText.T("ProductivityTweaks"));
+            DrawToggle(_config.EnableCustomPerks, ModText.T("EnableCustomPerks"));
+            DrawToggle(_config.EnableUnknownEmployees, ModText.T("EnableUnknownEmployees"));
             DrawToggle(_config.EnableAggressiveMedicationPlanning, ModText.T("PlanMedication"));
             DrawToggle(_config.EnablePostSurgeryCleanupPriority, ModText.T("PrioritizeOrCleanup"));
             DrawToggle(_config.EnableJanitorStandbyAfterCleaning, ModText.T("JanitorStandbyAfterCleaning"));
@@ -255,12 +258,6 @@ namespace ProjectHospital.AutoLabBalancer
             DrawToggle(_config.EnableFramePacing, ModText.T("EnableFramePacing"));
             DrawToggle(_config.FramePacingUseMonitorRefreshRate, ModText.T("FramePacingUseMonitorRefreshRate"));
             DrawToggle(_config.EnablePerformanceOptimizations, ModText.T("EnablePerformanceOptimizations"));
-            DrawToggle(_config.EnableSchedulingEngine, ModText.T("EnableSchedulingEngine"));
-            DrawToggle(_config.EnableSchedulingEngineGating, ModText.T("EnableSchedulingEngineGating"));
-            DrawToggle(_config.EnableSchedulingDispatcherApply, ModText.T("EnableSchedulingDispatcherApply"));
-            DrawToggle(_config.EnableNurseTaskBoard, ModText.T("EnableNurseTaskBoard"));
-            DrawToggle(_config.EnableReservationBroker, ModText.T("EnableReservationBroker"));
-            DrawToggle(_config.EnableRouteRequestThrottle, ModText.T("EnableRouteRequestThrottle"));
             GUILayout.Space(8f);
             GUILayout.Label(ModText.T("IntakeControl"));
             DrawToggle(_config.EnableIntakeControl, ModText.T("EnableIntakeControl"));
@@ -367,6 +364,9 @@ namespace ProjectHospital.AutoLabBalancer
                     _overlaySnapshot.IntakeAmbulancePatients,
                     _overlaySnapshot.IntakeAmbulanceCapacity,
                     _overlaySnapshot.IntakeOutpatientDoctorCapacity));
+                GUILayout.Label(ModText.F("IntakeDynamicLine",
+                    _overlaySnapshot.IntakeDynamicDepartmentChoices,
+                    _overlaySnapshot.IntakeDirectDepartmentReferrals));
             }
 
             GUILayout.Label(ModText.F("SurgeryLine", _overlaySnapshot.PlannedSurgeries, _overlaySnapshot.CriticalSurgeryPatients, _overlaySnapshot.WaitingSurgeryDepartments));
@@ -462,7 +462,30 @@ namespace ProjectHospital.AutoLabBalancer
                     counters.ReservationBrokerHits,
                     counters.ReservationBrokerMisses,
                     counters.ReservationBrokerStores));
+                GUILayout.Label(ModText.F("ReservationBrokerReasonCountersLine",
+                    counters.ReservationBrokerAvailableDrops,
+                    counters.ReservationBrokerStaffUnavailableStores,
+                    counters.ReservationBrokerRoomUnavailableStores,
+                    counters.ReservationBrokerEquipmentUnavailableStores,
+                    counters.ReservationBrokerOtherFailureStores));
+                GUILayout.Label(ModText.F("TaskBoardCountersLine",
+                    counters.TaskBoardValidationFails,
+                    counters.TaskBoardClaimSkips));
             }
+
+            var perfCounters = PerformanceOptimizationService.GetCounters();
+            GUILayout.Label(ModText.F("PerformanceOptimizationCountersLine",
+                perfCounters.ObjectSearchHits,
+                perfCounters.ObjectSearchMisses,
+                perfCounters.ObjectSearchInvalidHits,
+                perfCounters.StaffSearchHits,
+                perfCounters.StaffSearchMisses,
+                perfCounters.StaffSearchInvalidHits));
+            GUILayout.Label(ModText.F("RouteRequestCountersLine",
+                perfCounters.RouteRepeatedRequests,
+                perfCounters.RouteRequests,
+                perfCounters.ReflectionFallbacks,
+                perfCounters.MissingTargets));
 
             var externalTransfer = ExternalTransferQueueBrokerService.Snapshot;
             if (externalTransfer != null)
@@ -494,6 +517,7 @@ namespace ProjectHospital.AutoLabBalancer
             {
                 PerformanceProfiler.Reset();
                 SchedulingEngineService.ResetCounters();
+                PerformanceOptimizationService.ResetCounters();
             }
         }
 
@@ -525,6 +549,9 @@ namespace ProjectHospital.AutoLabBalancer
         public ConfigEntry<bool> EnableNurseCheckDischarge { get; private set; }
         public ConfigEntry<bool> EnableEmergencyRunSpeedBoost { get; private set; }
         public ConfigEntry<bool> EnableAggressiveMedicationPlanning { get; private set; }
+        public ConfigEntry<bool> EnableCustomPerks { get; private set; }
+        public ConfigEntry<bool> EnableUnknownEmployees { get; private set; }
+        public ConfigEntry<int> MaxPerksPerCharacter { get; private set; }
         public ConfigEntry<int> MaxAutoMedicationsPerPlan { get; private set; }
         public ConfigEntry<int> MaxPlannedMedicationsPerPatient { get; private set; }
         public ConfigEntry<float> EmergencyRunSpeedMultiplier { get; private set; }
@@ -560,6 +587,7 @@ namespace ProjectHospital.AutoLabBalancer
         public ConfigEntry<int> MaxClinicPatientsPerDay { get; private set; }
         public ConfigEntry<int> MaxAmbulancePatientsPerDay { get; private set; }
         public ConfigEntry<int> ClinicPatientsPerDoctorPerShift { get; private set; }
+        public ConfigEntry<int> OutpatientPatientsPerDoctorPerDay { get; private set; }
         public ConfigEntry<int> AmbulancePatientsPerDoctorPerShift { get; private set; }
         public ConfigEntry<int> ReserveEmergencyCapacityPercent { get; private set; }
         public ConfigEntry<bool> IntakeDebugLog { get; private set; }
@@ -576,9 +604,6 @@ namespace ProjectHospital.AutoLabBalancer
         public ConfigEntry<bool> FramePacingDisableVSync { get; private set; }
         public ConfigEntry<float> FramePacingMaximumDeltaTime { get; private set; }
         public ConfigEntry<bool> EnablePerformanceOptimizations { get; private set; }
-        public ConfigEntry<bool> EnableSchedulingEngine { get; private set; }
-        public ConfigEntry<bool> EnableSchedulingEngineGating { get; private set; }
-        public ConfigEntry<bool> EnableSchedulingDispatcherApply { get; private set; }
         public ConfigEntry<float> SchedulingEngineIntervalSeconds { get; private set; }
         public ConfigEntry<float> SchedulingEngineMaxSnapshotAgeSeconds { get; private set; }
         public ConfigEntry<bool> SchedulingEngineDebugLog { get; private set; }
@@ -591,17 +616,13 @@ namespace ProjectHospital.AutoLabBalancer
         public ConfigEntry<float> SelectNextStepBackoffMaxSeconds { get; private set; }
         public ConfigEntry<bool> EnableReservationNegativeCache { get; private set; }
         public ConfigEntry<float> ReservationNegativeCacheTtlSeconds { get; private set; }
-        public ConfigEntry<bool> EnableReservationBroker { get; private set; }
         public ConfigEntry<float> ReservationBrokerTtlSeconds { get; private set; }
         public ConfigEntry<bool> EnableNurseIdleBackoff { get; private set; }
         public ConfigEntry<float> NurseIdleBackoffSeconds { get; private set; }
         public ConfigEntry<float> NurseIdleBackoffMaxSeconds { get; private set; }
-        public ConfigEntry<bool> EnableNurseTaskBoard { get; private set; }
-        public ConfigEntry<float> NurseTaskBoardTtlSeconds { get; private set; }
         public ConfigEntry<bool> EnableOutpatientQueueBackoff { get; private set; }
         public ConfigEntry<float> OutpatientQueueBackoffSeconds { get; private set; }
         public ConfigEntry<float> OutpatientQueueBackoffMaxSeconds { get; private set; }
-        public ConfigEntry<bool> EnableRouteRequestThrottle { get; private set; }
         public ConfigEntry<float> RouteRequestThrottleSeconds { get; private set; }
         public ConfigFile SourceConfig { get; private set; }
 
@@ -622,8 +643,11 @@ namespace ProjectHospital.AutoLabBalancer
                 EnableFlexibleStretcherPickup = config.Bind("ProductivityTweaks", "EnableFlexibleStretcherPickup", true, "When vanilla cannot find a free department stretcher/wheelchair, search other departments for a free valid matching transport object."),
                 EnableChainedHospitalizedExaminations = config.Bind("ProductivityTweaks", "EnableChainedHospitalizedExaminations", true, "Keep hospitalized patients near diagnostics when another examination is already planned instead of returning to bed immediately."),
                 EnableTransportReservationTimeout = config.Bind("ProductivityTweaks", "EnableTransportReservationTimeout", true, "Retry stale procedure/transport reservations for chained hospitalized patients before sending them back to bed."),
-                EnableNurseCheckDischarge = config.Bind("ProductivityTweaks", "EnableNurseCheckDischarge", true, "After a nurse checkup, discharge AI hospitalized patients that satisfy vanilla discharge checks except the daily release time window. ICU patients are left to vanilla placement logic."),
+                EnableNurseCheckDischarge = config.Bind("ProductivityTweaks", "EnableNurseCheckDischarge", true, "After a nurse checkup, discharge AI hospitalized patients that satisfy vanilla discharge checks except the daily release time window, and downgrade stable ICU patients through vanilla placement logic."),
                 EnableEmergencyRunSpeedBoost = config.Bind("ProductivityTweaks", "EnableEmergencyRunSpeedBoost", true, "Boost staff speed only in detected critical/collapse contexts."),
+                EnableCustomPerks = config.Bind("ProductivityTweaks", "EnableCustomPerks", true, "Add AutoLabBalancer custom patient/staff perks and their gameplay effects."),
+                EnableUnknownEmployees = config.Bind("ProductivityTweaks", "EnableUnknownEmployees", false, "Harder hiring: employee skills and perks are hidden before hire; skills reveal after 3-7 days and perks reveal one by one every 5 days."),
+                MaxPerksPerCharacter = config.Bind("ProductivityTweaks", "MaxPerksPerCharacter", 6, "Maximum total perks a generated patient or employee may have after custom perk fill."),
                 EnableAggressiveMedicationPlanning = config.Bind("ProductivityTweaks", "EnableAggressiveMedicationPlanning", true, "After diagnosis, plan all available prescription/receipt treatments for known active symptoms."),
                 MaxAutoMedicationsPerPlan = config.Bind("ProductivityTweaks", "MaxAutoMedicationsPerPlan", 4, "Maximum medication treatments the mod may add in one treatment-planning pass. 0 disables this per-pass limit."),
                 MaxPlannedMedicationsPerPatient = config.Bind("ProductivityTweaks", "MaxPlannedMedicationsPerPatient", 8, "Maximum planned/active medication treatments allowed per patient before the mod stops adding more. 0 disables this patient-level limit."),
@@ -659,7 +683,8 @@ namespace ProjectHospital.AutoLabBalancer
                 EnableDynamicIntakeByDoctors = config.Bind("IntakeControl", "EnableDynamicIntakeByDoctors", true, "Calculate intake capacity from available outpatient doctors."),
                 MaxClinicPatientsPerDay = config.Bind("IntakeControl", "MaxClinicPatientsPerDay", 0, "Hard cap for clinic/mobile patients per day. 0 disables this hard cap."),
                 MaxAmbulancePatientsPerDay = config.Bind("IntakeControl", "MaxAmbulancePatientsPerDay", 0, "Hard cap for ambulance/immobile patients per day. 0 disables this hard cap."),
-                ClinicPatientsPerDoctorPerShift = config.Bind("IntakeControl", "ClinicPatientsPerDoctorPerShift", 10, "Dynamic clinic/mobile patient capacity per outpatient doctor."),
+                ClinicPatientsPerDoctorPerShift = config.Bind("IntakeControl", "ClinicPatientsPerDoctorPerShift", 10, "Legacy no-op. Use OutpatientPatientsPerDoctorPerDay."),
+                OutpatientPatientsPerDoctorPerDay = config.Bind("IntakeControl", "OutpatientPatientsPerDoctorPerDay", 20, "Dynamic clinic/mobile patient capacity per outpatient doctor per day."),
                 AmbulancePatientsPerDoctorPerShift = config.Bind("IntakeControl", "AmbulancePatientsPerDoctorPerShift", 3, "Dynamic ambulance/immobile patient capacity per outpatient doctor."),
                 ReserveEmergencyCapacityPercent = config.Bind("IntakeControl", "ReserveEmergencyCapacityPercent", 15, "Percent of dynamic capacity reserved for emergency headroom."),
                 IntakeDebugLog = config.Bind("IntakeControl", "IntakeDebugLog", false, "Write detailed intake-control decisions."),
@@ -676,9 +701,6 @@ namespace ProjectHospital.AutoLabBalancer
                 FramePacingDisableVSync = config.Bind("Performance", "FramePacingDisableVSync", true, "Disable Unity vSync when frame pacing is enabled so Application.targetFrameRate can take effect."),
                 FramePacingMaximumDeltaTime = config.Bind("Performance", "FramePacingMaximumDeltaTime", 0.05f, "Clamp Unity Time.maximumDeltaTime to reduce post-stutter catch-up spikes. Vanilla is often larger."),
                 EnablePerformanceOptimizations = config.Bind("PerformanceOptimizations", "EnablePerformanceOptimizations", true, "Enable experimental runtime performance optimizations based on short-lived caches and backoff."),
-                EnableSchedulingEngine = config.Bind("PerformanceOptimizations", "EnableSchedulingEngine", true, "Build a central read-only runtime scheduling index for department task boards."),
-                EnableSchedulingEngineGating = config.Bind("PerformanceOptimizations", "EnableSchedulingEngineGating", true, "Allow the central scheduling index to influence AI backoff/gating. Disable to keep the index read-only for diagnostics."),
-                EnableSchedulingDispatcherApply = config.Bind("PerformanceOptimizations", "EnableSchedulingDispatcherApply", true, "Let dispatcher recommendations decide which idle doctors, nurses, and lab specialists may run vanilla task selection. Non-recommended idle scans are skipped."),
                 SchedulingEngineIntervalSeconds = config.Bind("PerformanceOptimizations", "SchedulingEngineIntervalSeconds", 0.5f, "How often to rebuild the central scheduling index."),
                 SchedulingEngineMaxSnapshotAgeSeconds = config.Bind("PerformanceOptimizations", "SchedulingEngineMaxSnapshotAgeSeconds", 1.5f, "Maximum scheduling snapshot age before optimizations ignore it."),
                 SchedulingEngineDebugLog = config.Bind("PerformanceOptimizations", "SchedulingEngineDebugLog", false, "Write central scheduling index rebuild summaries to the BepInEx log."),
@@ -691,17 +713,13 @@ namespace ProjectHospital.AutoLabBalancer
                 SelectNextStepBackoffMaxSeconds = config.Bind("PerformanceOptimizations", "SelectNextStepBackoffMaxSeconds", 2.0f, "Maximum adaptive backoff duration for repeated hospitalized SelectNextStep misses."),
                 EnableReservationNegativeCache = config.Bind("PerformanceOptimizations", "EnableReservationNegativeCache", false, "Legacy no-op. Reservation failures now go through the reservation broker."),
                 ReservationNegativeCacheTtlSeconds = config.Bind("PerformanceOptimizations", "ReservationNegativeCacheTtlSeconds", 0.35f, "Legacy no-op TTL kept only for old configs."),
-                EnableReservationBroker = config.Bind("PerformanceOptimizations", "EnableReservationBroker", true, "Route ReserveExamination/ReserveProcedure through a central broker that deduplicates short-lived failed reservation attempts."),
                 ReservationBrokerTtlSeconds = config.Bind("PerformanceOptimizations", "ReservationBrokerTtlSeconds", 0.35f, "TTL for reservation broker failed reservation entries."),
                 EnableNurseIdleBackoff = config.Bind("PerformanceOptimizations", "EnableNurseIdleBackoff", true, "Throttle repeated nurse idle scans when a nurse remains free and unreserved."),
                 NurseIdleBackoffSeconds = config.Bind("PerformanceOptimizations", "NurseIdleBackoffSeconds", 0.30f, "Initial backoff duration for repeated nurse idle scans."),
                 NurseIdleBackoffMaxSeconds = config.Bind("PerformanceOptimizations", "NurseIdleBackoffMaxSeconds", 2.5f, "Maximum adaptive backoff duration for repeated nurse idle scans."),
-                EnableNurseTaskBoard = config.Bind("PerformanceOptimizations", "EnableNurseTaskBoard", true, "Build a short-lived department nurse task board and let idle nurses skip expensive scans only when the board has no visible work."),
-                NurseTaskBoardTtlSeconds = config.Bind("PerformanceOptimizations", "NurseTaskBoardTtlSeconds", 0.5f, "TTL for department nurse task board snapshots."),
                 EnableOutpatientQueueBackoff = config.Bind("PerformanceOptimizations", "EnableOutpatientQueueBackoff", true, "Throttle repeated outpatient waiting-room scans."),
                 OutpatientQueueBackoffSeconds = config.Bind("PerformanceOptimizations", "OutpatientQueueBackoffSeconds", 0.30f, "Initial backoff duration for repeated outpatient waiting-room scans."),
                 OutpatientQueueBackoffMaxSeconds = config.Bind("PerformanceOptimizations", "OutpatientQueueBackoffMaxSeconds", 2.0f, "Maximum adaptive backoff duration for repeated outpatient waiting-room scans."),
-                EnableRouteRequestThrottle = config.Bind("PerformanceOptimizations", "EnableRouteRequestThrottle", true, "Throttle repeated WalkComponent.SetDestination calls to the same target for the same character."),
                 RouteRequestThrottleSeconds = config.Bind("PerformanceOptimizations", "RouteRequestThrottleSeconds", 0.25f, "Short cooldown for duplicate route requests to the same destination.")
             };
         }
@@ -796,17 +814,25 @@ namespace ProjectHospital.AutoLabBalancer
             }
         }
 
-        private static void Postfix(object __instance)
+        private static void Postfix(object __instance, MethodBase __originalMethod)
         {
             var entityField = AccessTools.Field(__instance.GetType(), "m_entity");
             var entity = entityField == null ? null : entityField.GetValue(__instance);
-            if (entity == null || ReflectionHelpers.GetComponentByTypeName(entity, "Lopital.EmployeeComponent") == null)
+            if (entity == null)
             {
                 return;
             }
 
             var perkSet = AccessTools.Field(__instance.GetType(), "m_perkSet").GetValue(__instance);
+            CustomPerkService.FillPerks(perkSet, entity);
+
+            if (ReflectionHelpers.GetComponentByTypeName(entity, "Lopital.EmployeeComponent") == null)
+            {
+                return;
+            }
+
             NegativePerkFilter.RemoveNegativePerks(perkSet, "perk component");
+            UnknownEmployeeService.HideGeneratedEmployeePerks(perkSet, entity, __originalMethod != null && __originalMethod.GetParameters().Length == 1);
         }
     }
 
@@ -898,6 +924,10 @@ namespace ProjectHospital.AutoLabBalancer
     {
         private static readonly Dictionary<string, FieldInfo> FieldCache = new Dictionary<string, FieldInfo>();
         private static readonly HashSet<string> MissingFieldCache = new HashSet<string>();
+        private static readonly Dictionary<string, MethodInfo> MethodCache = new Dictionary<string, MethodInfo>();
+        private static readonly HashSet<string> MissingMethodCache = new HashSet<string>();
+        private static readonly Dictionary<string, PropertyInfo> PropertyCache = new Dictionary<string, PropertyInfo>();
+        private static readonly HashSet<string> MissingPropertyCache = new HashSet<string>();
 
         public static object GetField(object instance, string fieldName)
         {
@@ -946,6 +976,69 @@ namespace ProjectHospital.AutoLabBalancer
             return null;
         }
 
+        private static MethodInfo FindMethod(Type type, string methodName, Type[] parameterTypes)
+        {
+            if (type == null || string.IsNullOrEmpty(methodName))
+            {
+                return null;
+            }
+
+            var signature = parameterTypes == null || parameterTypes.Length == 0 ? "()" : "(" + parameterTypes.Length + ")";
+            var key = type.FullName + "::" + methodName + signature;
+            if (MissingMethodCache.Contains(key))
+            {
+                return null;
+            }
+
+            MethodInfo cached;
+            if (MethodCache.TryGetValue(key, out cached))
+            {
+                return cached;
+            }
+
+            var method = type.GetMethod(methodName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, parameterTypes ?? Type.EmptyTypes, null);
+            if (method != null)
+            {
+                MethodCache[key] = method;
+                return method;
+            }
+
+            MissingMethodCache.Add(key);
+            PerformanceOptimizationService.RecordMissingTarget();
+            return null;
+        }
+
+        private static PropertyInfo FindProperty(Type type, string propertyName)
+        {
+            if (type == null || string.IsNullOrEmpty(propertyName))
+            {
+                return null;
+            }
+
+            var key = type.FullName + "::" + propertyName;
+            if (MissingPropertyCache.Contains(key))
+            {
+                return null;
+            }
+
+            PropertyInfo cached;
+            if (PropertyCache.TryGetValue(key, out cached))
+            {
+                return cached;
+            }
+
+            var property = type.GetProperty(propertyName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+            if (property != null)
+            {
+                PropertyCache[key] = property;
+                return property;
+            }
+
+            MissingPropertyCache.Add(key);
+            PerformanceOptimizationService.RecordMissingTarget();
+            return null;
+        }
+
         public static IEnumerable<object> GetEnumerableField(object instance, string fieldName)
         {
             var value = GetField(instance, fieldName) as IEnumerable;
@@ -972,7 +1065,7 @@ namespace ProjectHospital.AutoLabBalancer
 
             foreach (var name in new[] { "GetEntity", "Entry", "DEBUG_Entity", "Value" })
             {
-                var method = pointer.GetType().GetMethod(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, Type.EmptyTypes, null);
+                var method = FindMethod(pointer.GetType(), name, Type.EmptyTypes);
                 if (method != null)
                 {
                     try
@@ -984,7 +1077,7 @@ namespace ProjectHospital.AutoLabBalancer
                     }
                 }
 
-                var property = pointer.GetType().GetProperty(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                var property = FindProperty(pointer.GetType(), name);
                 if (property != null)
                 {
                     try
@@ -1007,7 +1100,7 @@ namespace ProjectHospital.AutoLabBalancer
                 return false;
             }
 
-            var method = instance.GetType().GetMethod(methodName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, Type.EmptyTypes, null);
+            var method = FindMethod(instance.GetType(), methodName, Type.EmptyTypes);
             return method != null && Equals(method.Invoke(instance, null), true);
         }
 
@@ -1018,7 +1111,7 @@ namespace ProjectHospital.AutoLabBalancer
                 return null;
             }
 
-            var property = instance.GetType().GetProperty(propertyName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+            var property = FindProperty(instance.GetType(), propertyName);
             return property == null ? null : property.GetValue(instance, null) as string;
         }
 
@@ -1029,7 +1122,7 @@ namespace ProjectHospital.AutoLabBalancer
                 return null;
             }
 
-            var field = AccessTools.Field(entity.GetType(), "m_components");
+            var field = FindField(entity.GetType(), "m_components");
             var components = field == null ? null : field.GetValue(entity) as IEnumerable;
             if (components == null)
             {

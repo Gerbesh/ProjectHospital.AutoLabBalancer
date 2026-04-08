@@ -188,6 +188,12 @@ namespace ProjectHospital.AutoLabBalancer
                 return;
             }
 
+            if (!IsWalkingState(walkComponent))
+            {
+                MovementRemainders.Remove(walkComponent);
+                return;
+            }
+
             var desiredExtraSteps = ((multiplier - 1f) * updateCount) + GetMovementRemainder(walkComponent);
             var extraSteps = Math.Max(0, (int)Math.Floor(desiredExtraSteps));
             extraSteps = Math.Min(extraSteps, 24);
@@ -208,14 +214,24 @@ namespace ProjectHospital.AutoLabBalancer
             }
 
             var floor = floorField.GetValue(walkComponent);
-            for (var i = 0; i < extraSteps && routeField.GetValue(walkComponent) != null; i++)
+            for (var i = 0; i < extraSteps && routeField.GetValue(walkComponent) != null && IsWalkingState(walkComponent); i++)
             {
                 var result = updateMovement.Invoke(walkComponent, new[] { floor, (object)movementDeltaTime });
-                if (result != null && string.Equals(result.ToString(), "NEXT_SEGMENT", StringComparison.OrdinalIgnoreCase) && routeField.GetValue(walkComponent) != null)
+                if (result != null
+                    && string.Equals(result.ToString(), "NEXT_SEGMENT", StringComparison.OrdinalIgnoreCase)
+                    && routeField.GetValue(walkComponent) != null
+                    && IsWalkingState(walkComponent))
                 {
                     updateMovement.Invoke(walkComponent, new[] { floor, (object)movementDeltaTime });
                 }
             }
+        }
+
+        private static bool IsWalkingState(object walkComponent)
+        {
+            var state = ReflectionHelpers.GetField(walkComponent, "m_state");
+            var walkState = ReflectionHelpers.GetField(state, "m_walkState");
+            return walkState != null && string.Equals(walkState.ToString(), "Walking", StringComparison.OrdinalIgnoreCase);
         }
 
         private static void TryApplyAbsurdTeleport(object walkComponent)
