@@ -16,7 +16,7 @@ namespace ProjectHospital.AutoLabBalancer
     {
         public const string PluginGuid = "local.projecthospital.autolabbalancer";
         public const string PluginName = "Project Hospital Productivity Tweaks";
-        public const string PluginVersion = "0.17.5";
+        public const string PluginVersion = "0.17.6";
 
         private AutoLabBalancerConfig _config;
         private Harmony _harmony;

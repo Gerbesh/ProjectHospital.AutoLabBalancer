@@ -179,6 +179,7 @@ namespace ProjectHospital.AutoLabBalancer
         private static readonly Dictionary<object, BackoffState> NurseIdleBackoff = new Dictionary<object, BackoffState>();
         private static readonly Dictionary<object, BackoffState> WaitingSittingBackoff = new Dictionary<object, BackoffState>();
         private static readonly Dictionary<object, BackoffState> PatientDoctorSearchBackoff = new Dictionary<object, BackoffState>();
+        private static readonly Dictionary<object, float> PersonalNeedsIdleNextCheck = new Dictionary<object, float>(ReferenceEqualityComparer.Instance);
         private static float _nextCleanupAt;
 
         public static bool Enabled
@@ -569,6 +570,24 @@ namespace ProjectHospital.AutoLabBalancer
                 return false;
             }
 
+            if (allowed && recommendation != null && recommendation.Task != null && recommendation.Task.Type == SchedulingTaskType.PersonalNeeds)
+            {
+                var now = Time.realtimeSinceStartup;
+                float nextAt;
+                if (PersonalNeedsIdleNextCheck.TryGetValue(behavior, out nextAt) && now < nextAt)
+                {
+                    allowed = false;
+                }
+                else
+                {
+                    PersonalNeedsIdleNextCheck[behavior] = now + 5f;
+                }
+            }
+            else if (allowed)
+            {
+                PersonalNeedsIdleNextCheck.Remove(behavior);
+            }
+
             SchedulingEngineService.RecordDispatcherApply(allowed);
             return true;
         }
@@ -748,7 +767,7 @@ namespace ProjectHospital.AutoLabBalancer
                 return null;
             }
 
-            var property = AccessTools.Property(instance.GetType(), name);
+            var property = instance.GetType().GetProperty(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
             if (property != null)
             {
                 return property.GetValue(instance, null);

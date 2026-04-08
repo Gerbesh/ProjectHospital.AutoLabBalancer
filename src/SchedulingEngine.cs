@@ -589,6 +589,10 @@ namespace ProjectHospital.AutoLabBalancer
             {
                 board.DoctorScore += score;
             }
+            else if (string.Equals(role, "janitor", StringComparison.OrdinalIgnoreCase))
+            {
+                board.JanitorScore += score;
+            }
         }
 
         private static bool TryFindJanitorDirtyTile(object janitor, object department, out object dirtyTile)
