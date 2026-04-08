@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Collections;
+using System.Reflection;
 using System.Threading;
 using HarmonyLib;
 using UnityEngine;
@@ -20,6 +21,7 @@ namespace ProjectHospital.AutoLabBalancer
         CollapseCare,
         Examination,
         Treatment,
+        Cleaning,
         PersonalNeeds
     }
 
@@ -55,6 +57,7 @@ namespace ProjectHospital.AutoLabBalancer
         public int Score;
         public int NurseScore;
         public int DoctorScore;
+        public int JanitorScore;
         public int CriticalPatients;
         public int WaitingPatients;
         public int PlannedSurgeryPatients;
@@ -63,6 +66,7 @@ namespace ProjectHospital.AutoLabBalancer
         public int FoodTasks;
         public int TransportTasks;
         public int CollapseCareTasks;
+        public int CleaningTasks;
         public int FreeDoctors;
         public int FreeNurses;
         public int FreeLabSpecialists;
@@ -86,6 +90,7 @@ namespace ProjectHospital.AutoLabBalancer
                     + FoodTasks
                     + TransportTasks
                     + CollapseCareTasks
+                    + CleaningTasks
                     + PersonalNeedsTasks;
             }
         }
@@ -123,6 +128,7 @@ namespace ProjectHospital.AutoLabBalancer
         public int SurgeryTasks;
         public int MedicineTasks;
         public int TransportTasks;
+        public int CleaningTasks;
         public int WaitingPatientTasks;
         public int NurseTasks;
         public int DoctorTasks;
@@ -164,6 +170,7 @@ namespace ProjectHospital.AutoLabBalancer
     internal static class SchedulingEngineService
     {
         private static readonly object Sync = new object();
+        private static MethodInfo _findJanitorDirtyTileMethod;
         private static SchedulingSnapshot _snapshot;
         private static float _nextRebuildAt;
         private static readonly double TickToMs = 1000.0 / Stopwatch.Frequency;
@@ -535,8 +542,28 @@ namespace ProjectHospital.AutoLabBalancer
             {
                 board.FreeJanitors++;
                 AddStaffCandidate(board, character, "janitor");
+                AddJanitorCleaningTask(board, character, janitor, department);
                 AddPersonalStaffTasks(board, character, janitor, "janitor");
             }
+        }
+
+        private static void AddJanitorCleaningTask(SchedulingDepartmentBoard board, object staffEntity, object janitor, object department)
+        {
+            if (board == null || staffEntity == null || janitor == null || department == null)
+            {
+                return;
+            }
+
+            object dirtyTile;
+            if (!TryFindJanitorDirtyTile(janitor, department, out dirtyTile))
+            {
+                return;
+            }
+
+            board.CleaningTasks++;
+            board.Score += 90;
+            board.JanitorScore += 90;
+            AddTask(board, staffEntity, "janitor", SchedulingTaskType.Cleaning, 90, dirtyTile);
         }
 
         private static void AddPersonalStaffTasks(SchedulingDepartmentBoard board, object staffEntity, object behavior, string role)
@@ -561,6 +588,66 @@ namespace ProjectHospital.AutoLabBalancer
             else if (string.Equals(role, "doctor", StringComparison.OrdinalIgnoreCase))
             {
                 board.DoctorScore += score;
+            }
+        }
+
+        private static bool TryFindJanitorDirtyTile(object janitor, object department, out object dirtyTile)
+        {
+            dirtyTile = null;
+            try
+            {
+                var map = Lopital.MapScriptInterface.Instance;
+                if (map == null)
+                {
+                    return false;
+                }
+
+                if (_findJanitorDirtyTileMethod == null)
+                {
+                    _findJanitorDirtyTileMethod = AccessTools.Method(map.GetType(), "FindDirtiestTileInRoomWithMatchingAssignmentAnyFloor", new[]
+                    {
+                        AccessTools.TypeByName("Lopital.BehaviorJanitor"),
+                        AccessTools.TypeByName("Lopital.Department"),
+                        typeof(int)
+                    });
+                }
+
+                if (_findJanitorDirtyTileMethod == null)
+                {
+                    return false;
+                }
+
+                var result = _findJanitorDirtyTileMethod.Invoke(map, new[] { janitor, department, (object)0 });
+                if (!IsValidVector3i(result))
+                {
+                    return false;
+                }
+
+                dirtyTile = result;
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static bool IsValidVector3i(object value)
+        {
+            if (value == null)
+            {
+                return false;
+            }
+
+            try
+            {
+                var x = Convert.ToInt32(ReflectionHelpers.GetField(value, "m_x"));
+                var y = Convert.ToInt32(ReflectionHelpers.GetField(value, "m_y"));
+                return x != 0 || y != 0;
+            }
+            catch
+            {
+                return false;
             }
         }
 
@@ -754,6 +841,7 @@ namespace ProjectHospital.AutoLabBalancer
                 snapshot.SurgeryTasks += board.PlannedSurgeryPatients;
                 snapshot.MedicineTasks += board.MedicineTasks;
                 snapshot.TransportTasks += board.TransportTasks;
+                snapshot.CleaningTasks += board.CleaningTasks;
                 snapshot.WaitingPatientTasks += board.WaitingPatients;
                 snapshot.NurseTasks += board.NurseTasks;
                 snapshot.DoctorTasks += board.DoctorTasks;
@@ -787,9 +875,11 @@ namespace ProjectHospital.AutoLabBalancer
                     + " surgery=" + top.PlannedSurgeryPatients
                     + " meds=" + top.MedicineTasks
                     + " transport=" + top.TransportTasks
+                    + " cleaning=" + top.CleaningTasks
                     + " personal=" + top.PersonalNeedsTasks
                     + " nurseScore=" + top.NurseScore
                     + " doctorScore=" + top.DoctorScore
+                    + " janitorScore=" + top.JanitorScore
                     + " dryRun(nurse/doctor)=" + top.NurseDryRunDispatches + "/" + top.DoctorDryRunDispatches
                     + " freeNurses=" + top.FreeNurses
                     + " freeDoctors=" + top.FreeDoctors;
