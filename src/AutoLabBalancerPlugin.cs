@@ -16,7 +16,7 @@ namespace ProjectHospital.AutoLabBalancer
     {
         public const string PluginGuid = "local.projecthospital.autolabbalancer";
         public const string PluginName = "Project Hospital Productivity Tweaks";
-        public const string PluginVersion = "0.16.3";
+        public const string PluginVersion = "0.16.4";
 
         private AutoLabBalancerConfig _config;
         private Harmony _harmony;
@@ -63,6 +63,7 @@ namespace ProjectHospital.AutoLabBalancer
             }
 
             PerformanceProfiler.Tick(Time.realtimeSinceStartup);
+            FramePacingService.Tick();
             SchedulingEngineService.Tick(Time.realtimeSinceStartup);
             ExternalTransferQueueBrokerService.Tick(Time.realtimeSinceStartup);
 
@@ -251,6 +252,7 @@ namespace ProjectHospital.AutoLabBalancer
             GUILayout.Label(ModText.T("PerformanceProfiler"));
             DrawToggle(_config.EnablePerformanceProfiler, ModText.T("EnablePerformanceProfiler"));
             DrawToggle(_config.ProfilerAutoResetAfterLog, ModText.T("ProfilerAutoResetAfterLog"));
+            DrawToggle(_config.EnableFramePacing, ModText.T("EnableFramePacing"));
             DrawToggle(_config.EnablePerformanceOptimizations, ModText.T("EnablePerformanceOptimizations"));
             DrawToggle(_config.EnableSchedulingEngine, ModText.T("EnableSchedulingEngine"));
             DrawToggle(_config.EnableSchedulingEngineGating, ModText.T("EnableSchedulingEngineGating"));
@@ -479,6 +481,9 @@ namespace ProjectHospital.AutoLabBalancer
                 }
             }
 
+            GUILayout.Space(8f);
+            GUILayout.Label(FramePacingService.Summary);
+
             if (GUILayout.Button(ModText.T("PerformanceProfilerReset")))
             {
                 PerformanceProfiler.Reset();
@@ -558,6 +563,10 @@ namespace ProjectHospital.AutoLabBalancer
         public ConfigEntry<int> ProfilerTopN { get; private set; }
         public ConfigEntry<float> ProfilerSlowCallMs { get; private set; }
         public ConfigEntry<bool> ProfilerAutoResetAfterLog { get; private set; }
+        public ConfigEntry<bool> EnableFramePacing { get; private set; }
+        public ConfigEntry<int> FramePacingTargetFrameRate { get; private set; }
+        public ConfigEntry<bool> FramePacingDisableVSync { get; private set; }
+        public ConfigEntry<float> FramePacingMaximumDeltaTime { get; private set; }
         public ConfigEntry<bool> EnablePerformanceOptimizations { get; private set; }
         public ConfigEntry<bool> EnableSchedulingEngine { get; private set; }
         public ConfigEntry<bool> EnableSchedulingEngineGating { get; private set; }
@@ -650,6 +659,10 @@ namespace ProjectHospital.AutoLabBalancer
                 ProfilerTopN = config.Bind("Performance", "ProfilerTopN", 20, "How many profiler rows to show/log."),
                 ProfilerSlowCallMs = config.Bind("Performance", "ProfilerSlowCallMs", 5f, "Calls at or above this duration are counted as slow calls."),
                 ProfilerAutoResetAfterLog = config.Bind("Performance", "ProfilerAutoResetAfterLog", false, "When true, reset profiler samples after each periodic log. Leave false for long manual profiling sessions."),
+                EnableFramePacing = config.Bind("Performance", "EnableFramePacing", true, "Apply stable frame pacing settings: target FPS, vSync mode, and maximumDeltaTime clamp."),
+                FramePacingTargetFrameRate = config.Bind("Performance", "FramePacingTargetFrameRate", 60, "Target render FPS when frame pacing is enabled. 60 is intentionally conservative for smoother CPU-bound pacing."),
+                FramePacingDisableVSync = config.Bind("Performance", "FramePacingDisableVSync", true, "Disable Unity vSync when frame pacing is enabled so Application.targetFrameRate can take effect."),
+                FramePacingMaximumDeltaTime = config.Bind("Performance", "FramePacingMaximumDeltaTime", 0.05f, "Clamp Unity Time.maximumDeltaTime to reduce post-stutter catch-up spikes. Vanilla is often larger."),
                 EnablePerformanceOptimizations = config.Bind("PerformanceOptimizations", "EnablePerformanceOptimizations", true, "Enable experimental runtime performance optimizations based on short-lived caches and backoff."),
                 EnableSchedulingEngine = config.Bind("PerformanceOptimizations", "EnableSchedulingEngine", true, "Build a central read-only runtime scheduling index for department task boards."),
                 EnableSchedulingEngineGating = config.Bind("PerformanceOptimizations", "EnableSchedulingEngineGating", true, "Allow the central scheduling index to influence AI backoff/gating. Disable to keep the index read-only for diagnostics."),
