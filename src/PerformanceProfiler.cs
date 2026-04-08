@@ -159,6 +159,7 @@ namespace ProjectHospital.AutoLabBalancer
             AddMethod(methods, AccessTools.Method(AccessTools.TypeByName("Lopital.BehaviorLabSpecialist"), "Update", new[] { typeof(float) }));
             AddMethod(methods, AccessTools.Method(typeof(BottleneckOverlayService), "CreateSnapshot", Type.EmptyTypes));
             AddMethod(methods, AccessTools.Method(typeof(ProductivityTweaksService), "Tick", new[] { typeof(float) }));
+            AddWalkPathfindingMethods(methods);
 
             foreach (var typeName in new[]
             {
@@ -173,13 +174,45 @@ namespace ProjectHospital.AutoLabBalancer
                 "Lopital.ProcedureSceneFactory",
                 "Lopital.Department",
                 "Lopital.MapScriptInterface",
-                "Lopital.LabProcedureManager"
+                "Lopital.LabProcedureManager",
+                "GLib.PathfinderJob",
+                "GLib.ElevatorPathFindingJob",
+                "GLib.GridPathFinder",
+                "GLib.Pathfinder"
             })
             {
                 AddDetailedMethods(methods, typeName);
             }
 
             return methods;
+        }
+
+        private static void AddWalkPathfindingMethods(List<MethodBase> methods)
+        {
+            var walk = AccessTools.TypeByName("Lopital.WalkComponent");
+            var vector2i = AccessTools.TypeByName("GLib.Vector2i");
+            var vector2f = AccessTools.TypeByName("GLib.Vector2f");
+            var movementType = AccessTools.TypeByName("Lopital.MovementType");
+            if (walk == null)
+            {
+                return;
+            }
+
+            if (vector2i != null && movementType != null)
+            {
+                AddMethod(methods, AccessTools.Method(walk, "SetDestination", new[] { vector2i, typeof(int), movementType }));
+            }
+
+            if (vector2f != null && movementType != null)
+            {
+                AddMethod(methods, AccessTools.Method(walk, "SetDestination", new[] { vector2f, typeof(int), movementType }));
+            }
+
+            AddMethod(methods, AccessTools.Method(walk, "CheckElevator", Type.EmptyTypes));
+            AddMethod(methods, AccessTools.Method(walk, "UpdateDestinationSet", Type.EmptyTypes));
+            AddMethod(methods, AccessTools.Method(walk, "SetupJob", new[] { typeof(bool), typeof(bool), typeof(bool) }));
+            AddMethod(methods, AccessTools.Method(walk, "UpdateLookingForPath", Type.EmptyTypes));
+            AddMethod(methods, AccessTools.Method(walk, "MoveFloor", new[] { typeof(bool) }));
         }
 
         private static void AddDetailedMethods(List<MethodBase> methods, string typeName)
