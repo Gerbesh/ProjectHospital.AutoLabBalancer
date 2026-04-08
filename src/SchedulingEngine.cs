@@ -262,6 +262,13 @@ namespace ProjectHospital.AutoLabBalancer
 
         public static bool TryGetStaffRecommendation(object staffOrBehavior, string role, out SchedulingDispatchRecommendation recommendation)
         {
+            bool allowed;
+            return TryGetStaffDispatcherDecision(staffOrBehavior, role, out allowed, out recommendation) && allowed;
+        }
+
+        public static bool TryGetStaffDispatcherDecision(object staffOrBehavior, string role, out bool allowed, out SchedulingDispatchRecommendation recommendation)
+        {
+            allowed = false;
             recommendation = null;
             if (!Enabled || staffOrBehavior == null || string.IsNullOrEmpty(role))
             {
@@ -276,6 +283,23 @@ namespace ProjectHospital.AutoLabBalancer
                 return false;
             }
 
+            var staffIsInBoard = false;
+            for (var i = 0; i < board.StaffCandidates.Count; i++)
+            {
+                var candidate = board.StaffCandidates[i];
+                if (ReferenceEquals(candidate.Staff, staff)
+                    && string.Equals(candidate.Role, role, StringComparison.OrdinalIgnoreCase))
+                {
+                    staffIsInBoard = true;
+                    break;
+                }
+            }
+
+            if (!staffIsInBoard)
+            {
+                return false;
+            }
+
             for (var i = 0; i < board.DispatchRecommendations.Count; i++)
             {
                 var candidate = board.DispatchRecommendations[i];
@@ -283,11 +307,12 @@ namespace ProjectHospital.AutoLabBalancer
                     && string.Equals(candidate.StaffRole, role, StringComparison.OrdinalIgnoreCase))
                 {
                     recommendation = candidate;
+                    allowed = true;
                     return true;
                 }
             }
 
-            return false;
+            return true;
         }
 
         public static void RecordDispatcherApply(bool allowed)

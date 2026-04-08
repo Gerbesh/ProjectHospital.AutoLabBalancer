@@ -16,7 +16,7 @@ namespace ProjectHospital.AutoLabBalancer
     {
         public const string PluginGuid = "local.projecthospital.autolabbalancer";
         public const string PluginName = "Project Hospital Productivity Tweaks";
-        public const string PluginVersion = "0.17.1";
+        public const string PluginVersion = "0.17.2";
 
         private AutoLabBalancerConfig _config;
         private Harmony _harmony;
@@ -230,7 +230,6 @@ namespace ProjectHospital.AutoLabBalancer
             GUILayout.Space(8f);
             GUILayout.Label(ModText.T("ProductivityTweaks"));
             DrawToggle(_config.EnableAggressiveMedicationPlanning, ModText.T("PlanMedication"));
-            DrawToggle(_config.EnableFreeTimeSuppression, ModText.T("SuppressFreeTime"));
             DrawToggle(_config.EnablePostSurgeryCleanupPriority, ModText.T("PrioritizeOrCleanup"));
             DrawToggle(_config.EnableStuckReservationCleanup, ModText.T("CleanStuckReservations"));
             DrawToggle(_config.EnableFlexibleStretcherPickup, ModText.T("FlexibleStretcherPickup"));
@@ -276,7 +275,6 @@ namespace ProjectHospital.AutoLabBalancer
             GUILayout.BeginHorizontal();
             GUILayout.BeginVertical();
             GUILayout.Label(ModText.T("MedicationAutoAdded") + RuntimeCounters.MedicationsAutoPlanned);
-            GUILayout.Label(ModText.T("FreeTimeSuppressed") + RuntimeCounters.FreeTimeSuppressed);
             GUILayout.Label(ModText.T("OrCleanupPriorities") + RuntimeCounters.ORCleanupPrioritiesCreated);
             GUILayout.Label(ModText.T("NurseOrTilesCleaned") + RuntimeCounters.NurseORTilesCleaned);
             GUILayout.EndVertical();
@@ -614,7 +612,7 @@ namespace ProjectHospital.AutoLabBalancer
                 TickIntervalSeconds = config.Bind("General", "TickIntervalSeconds", 30f, "How often to run background mod maintenance."),
                 EnablePostSurgeryCleanupPriority = config.Bind("ProductivityTweaks", "EnablePostSurgeryCleanupPriority", false, "After surgery, prioritize the operating room for janitor cleanup. Disabled by default because forcing janitor room selection can interfere with vanilla janitor shift state."),
                 EnableNurseAssistedORCleanup = config.Bind("ProductivityTweaks", "EnableNurseAssistedORCleanup", false, "Allow free surgical nurses to help with limited operating room cleanup when no higher-priority nurse work is detected."),
-                EnableFreeTimeSuppression = config.Bind("ProductivityTweaks", "EnableFreeTimeSuppression", true, "Prevent doctor/nurse free-time procedures while the department is visibly busy."),
+                EnableFreeTimeSuppression = config.Bind("ProductivityTweaks", "EnableFreeTimeSuppression", false, "Legacy no-op. Free-time/needs are now handled as low-priority scheduling tasks."),
                 EnableStuckReservationCleanup = config.Bind("ProductivityTweaks", "EnableStuckReservationCleanup", true, "Watchdog for stale employee and room reservations."),
                 EnableFlexibleStretcherPickup = config.Bind("ProductivityTweaks", "EnableFlexibleStretcherPickup", true, "When vanilla cannot find a free department stretcher/wheelchair, search other departments for a free valid matching transport object."),
                 EnableChainedHospitalizedExaminations = config.Bind("ProductivityTweaks", "EnableChainedHospitalizedExaminations", true, "Keep hospitalized patients near diagnostics when another examination is already planned instead of returning to bed immediately."),
@@ -629,7 +627,7 @@ namespace ProjectHospital.AutoLabBalancer
                 TransportReservationTimeoutSeconds = config.Bind("ProductivityTweaks", "TransportReservationTimeoutSeconds", 90f, "How long chained hospitalized patients may wait outside room before retrying procedure/transport reservation."),
                 ORCleanupPriorityDurationSeconds = config.Bind("ProductivityTweaks", "ORCleanupPriorityDurationSeconds", 300f, "How long an operating room remains a high-priority cleanup target after surgery."),
                 NurseORCleanupMaxDurationSeconds = config.Bind("ProductivityTweaks", "NurseORCleanupMaxDurationSeconds", 45f, "Maximum time a nurse-assisted cleanup attempt may own an operating room reservation."),
-                SuppressFreeTimeWhenDepartmentBusy = config.Bind("ProductivityTweaks", "SuppressFreeTimeWhenDepartmentBusy", true, "When true, only suppress free-time if the department has obvious queued or critical work."),
+                SuppressFreeTimeWhenDepartmentBusy = config.Bind("ProductivityTweaks", "SuppressFreeTimeWhenDepartmentBusy", false, "Legacy no-op. Free-time/needs are now handled by the central scheduler."),
                 EnableDebugProductivityLog = config.Bind("ProductivityTweaks", "EnableDebugProductivityLog", false, "Write detailed Productivity Tweaks decisions."),
                 EnableBottleneckOverlay = config.Bind("Overlay", "EnableBottleneckOverlay", true, "Show runtime bottleneck diagnostics in the F8 mod window."),
                 EnableSurgeryAnalyticsLog = config.Bind("Overlay", "EnableSurgeryAnalyticsLog", true, "Periodically write surgery and transport bottleneck counters to the BepInEx log."),
@@ -685,8 +683,8 @@ namespace ProjectHospital.AutoLabBalancer
                 EnableSelectNextStepBackoff = config.Bind("PerformanceOptimizations", "EnableSelectNextStepBackoff", true, "Back off repeated hospitalized SelectNextStep calls when the previous attempt did not start new work."),
                 SelectNextStepBackoffSeconds = config.Bind("PerformanceOptimizations", "SelectNextStepBackoffSeconds", 0.35f, "Initial backoff duration for hospitalized SelectNextStep misses."),
                 SelectNextStepBackoffMaxSeconds = config.Bind("PerformanceOptimizations", "SelectNextStepBackoffMaxSeconds", 2.0f, "Maximum adaptive backoff duration for repeated hospitalized SelectNextStep misses."),
-                EnableReservationNegativeCache = config.Bind("PerformanceOptimizations", "EnableReservationNegativeCache", true, "Cache short-lived failed examination/procedure reservations."),
-                ReservationNegativeCacheTtlSeconds = config.Bind("PerformanceOptimizations", "ReservationNegativeCacheTtlSeconds", 0.35f, "TTL for failed reservation cache entries."),
+                EnableReservationNegativeCache = config.Bind("PerformanceOptimizations", "EnableReservationNegativeCache", false, "Legacy no-op. Reservation failures now go through the reservation broker."),
+                ReservationNegativeCacheTtlSeconds = config.Bind("PerformanceOptimizations", "ReservationNegativeCacheTtlSeconds", 0.35f, "Legacy no-op TTL kept only for old configs."),
                 EnableReservationBroker = config.Bind("PerformanceOptimizations", "EnableReservationBroker", true, "Route ReserveExamination/ReserveProcedure through a central broker that deduplicates short-lived failed reservation attempts."),
                 ReservationBrokerTtlSeconds = config.Bind("PerformanceOptimizations", "ReservationBrokerTtlSeconds", 0.35f, "TTL for reservation broker failed reservation entries."),
                 EnableNurseIdleBackoff = config.Bind("PerformanceOptimizations", "EnableNurseIdleBackoff", true, "Throttle repeated nurse idle scans when a nurse remains free and unreserved."),
@@ -720,7 +718,6 @@ namespace ProjectHospital.AutoLabBalancer
     internal static class RuntimeCounters
     {
         public static int MedicationsAutoPlanned;
-        public static int FreeTimeSuppressed;
         public static int ORCleanupPrioritiesCreated;
         public static int NurseCleanupJobsStarted;
         public static int NurseORTilesCleaned;

@@ -103,42 +103,6 @@ namespace ProjectHospital.AutoLabBalancer
             }
         }
 
-        public static bool ShouldSuppressFreeTime(object procedure, object department)
-        {
-            if (!IsEnabled() || !RuntimeSettings.Config.EnableFreeTimeSuppression.Value)
-            {
-                return false;
-            }
-
-            try
-            {
-                if (!IsFreeTimeProcedure(procedure))
-                {
-                    return false;
-                }
-
-                if (!RuntimeSettings.Config.SuppressFreeTimeWhenDepartmentBusy.Value)
-                {
-                    Debug("Suppressed free-time because department-busy gating is disabled.");
-                    RuntimeCounters.FreeTimeSuppressed++;
-                    return true;
-                }
-
-                if (IsDepartmentBusy(department))
-                {
-                    Debug("Suppressed free-time for busy department " + Describe(department) + ".");
-                    RuntimeCounters.FreeTimeSuppressed++;
-                    return true;
-                }
-            }
-            catch (Exception ex)
-            {
-                LogError("Free-time suppression check failed: " + ex);
-            }
-
-            return false;
-        }
-
         public static bool TryHandleNurseAssistedCleanup(object nurse, float deltaTime)
         {
             if (!IsEnabled() || !RuntimeSettings.Config.EnableNurseAssistedORCleanup.Value || nurse == null || deltaTime <= 0f)
@@ -943,37 +907,6 @@ namespace ProjectHospital.AutoLabBalancer
             return ReflectionHelpers.ResolvePointer(ReflectionHelpers.GetField(state, "m_reservedByCharacter")) != null;
         }
 
-        private static bool IsDepartmentBusy(object department)
-        {
-            if (department == null)
-            {
-                return HighPriorityCleanupRooms.Count > 0;
-            }
-
-            return InvokeBool(department, "HasAnyCriticalPatients")
-                || InvokeBool(department, "HasWaitingSurgery")
-                || InvokeBool(department, "HasAnyCriticalSurgeryScheduled")
-                || InvokeBool(department, "HasAnyHospitalizedPatientsWithScheduledProcedures")
-                || InvokeBool(department, "HasAnyWaitingPatients")
-                || HighPriorityCleanupRooms.Count > 0;
-        }
-
-        private static bool IsFreeTimeProcedure(object procedure)
-        {
-            if (procedure == null)
-            {
-                return false;
-            }
-
-            var script = ReflectionHelpers.GetStringProperty(procedure, "ProcedureScript");
-            if (string.IsNullOrEmpty(script))
-            {
-                script = procedure.ToString();
-            }
-
-            return script != null && script.IndexOf("FreeTime", StringComparison.OrdinalIgnoreCase) >= 0;
-        }
-
         private static object GetCurrentOrReservedPatient(object behavior)
         {
             var property = behavior.GetType().GetProperty("CurrentPatient", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
@@ -1509,43 +1442,6 @@ namespace ProjectHospital.AutoLabBalancer
             ref Lopital.TileObject __result)
         {
             __result = (Lopital.TileObject)ProductivityTweaksService.TryFindFlexibleTransportObject(__result, position, floorIndex, department, tag, accessRights, needsToBeFree, onlyComposite);
-        }
-    }
-
-    [HarmonyPatch]
-    internal static class ProductivityFreeTimeAvailabilityPatch
-    {
-        private static IEnumerable<MethodBase> TargetMethods()
-        {
-            var type = AccessTools.TypeByName("Lopital.ProcedureComponent");
-            if (type == null)
-            {
-                yield break;
-            }
-
-            foreach (var method in AccessTools.GetDeclaredMethods(type))
-            {
-                if ((method.Name == "GetProcedureAvailability" || method.Name == "GetProcedureAvailabilty")
-                    && method.ReturnType.FullName == "Lopital.ProcedureSceneAvailability")
-                {
-                    yield return method;
-                }
-            }
-        }
-
-        private static void Postfix(object[] __args, ref Lopital.ProcedureSceneAvailability __result)
-        {
-            if (__result != Lopital.ProcedureSceneAvailability.AVAILABLE)
-            {
-                return;
-            }
-
-            var procedure = __args == null ? null : __args.OfType<GameDBProcedure>().FirstOrDefault();
-            var department = __args == null ? null : __args.OfType<Lopital.Department>().FirstOrDefault();
-            if (ProductivityTweaksService.ShouldSuppressFreeTime(procedure, department))
-            {
-                __result = Lopital.ProcedureSceneAvailability.STAFF_BUSY;
-            }
         }
     }
 

@@ -53,8 +53,7 @@ namespace ProjectHospital.AutoLabBalancer
         {
             if (!PerformanceOptimizationService.Enabled
                 || RuntimeSettings.Config == null
-                || !RuntimeSettings.Config.EnableReservationBroker.Value
-                || !RuntimeSettings.Config.EnableReservationNegativeCache.Value)
+                || !RuntimeSettings.Config.EnableReservationBroker.Value)
             {
                 return false;
             }
@@ -76,8 +75,7 @@ namespace ProjectHospital.AutoLabBalancer
         {
             if (!PerformanceOptimizationService.Enabled
                 || RuntimeSettings.Config == null
-                || !RuntimeSettings.Config.EnableReservationBroker.Value
-                || !RuntimeSettings.Config.EnableReservationNegativeCache.Value)
+                || !RuntimeSettings.Config.EnableReservationBroker.Value)
             {
                 return;
             }
@@ -566,7 +564,11 @@ namespace ProjectHospital.AutoLabBalancer
             }
 
             SchedulingDispatchRecommendation recommendation;
-            allowed = SchedulingEngineService.TryGetStaffRecommendation(behavior, role, out recommendation);
+            if (!SchedulingEngineService.TryGetStaffDispatcherDecision(behavior, role, out allowed, out recommendation))
+            {
+                return false;
+            }
+
             SchedulingEngineService.RecordDispatcherApply(allowed);
             return true;
         }
