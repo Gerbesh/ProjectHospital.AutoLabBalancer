@@ -45,6 +45,11 @@ namespace ProjectHospital.AutoLabBalancer
                 return;
             }
 
+            if (MedicalCaseRewriteService.HasCaseRecord(patient))
+            {
+                return;
+            }
+
             try
             {
                 var procedureComponent = GetProcedureComponent(patient);
@@ -140,6 +145,11 @@ namespace ProjectHospital.AutoLabBalancer
                 return false;
             }
 
+            if (MedicalCaseRewriteService.HasCaseRecord(patient))
+            {
+                return false;
+            }
+
             try
             {
                 var state = ReflectionHelpers.GetField(patient, "m_state");
@@ -198,6 +208,88 @@ namespace ProjectHospital.AutoLabBalancer
             }
         }
 
+        public static bool TryReferCaseBlockedPatient(Lopital.BehaviorPatient patient, string reason, bool equipmentLike)
+        {
+            if (patient == null || RuntimeSettings.Config == null || !RuntimeSettings.Config.Enabled.Value)
+            {
+                return false;
+            }
+
+            if (equipmentLike)
+            {
+                if (!RuntimeSettings.Config.EnableEquipmentReferral.Value)
+                {
+                    return false;
+                }
+            }
+            else if (!RuntimeSettings.Config.EnableUnsupportedDiagnosisReferral.Value)
+            {
+                return false;
+            }
+
+            try
+            {
+                var state = ReflectionHelpers.GetField(patient, "m_state");
+                if (state == null
+                    || Equals(ReflectionHelpers.GetField(state, "m_sentAway"), true)
+                    || Equals(ReflectionHelpers.GetField(state, "m_sentHome"), true)
+                    || Equals(ReflectionHelpers.GetField(state, "m_deathTriggered"), true))
+                {
+                    return false;
+                }
+
+                var entity = ReflectionHelpers.GetField(patient, "m_entity") as GLib.Entity;
+                if (IsHospitalized(entity))
+                {
+                    return false;
+                }
+
+                var department = ReflectionHelpers.ResolvePointer(ReflectionHelpers.GetField(state, "m_department")) as Lopital.Department;
+                var percent = equipmentLike
+                    ? RuntimeSettings.Config.EquipmentReferralPaymentPercent.Value
+                    : RuntimeSettings.Config.UnsupportedDiagnosisReferralPaymentPercent.Value;
+                var payment = CalculateReferralPayment(patient, state, percent);
+                if (payment > 0)
+                {
+                    Pay(entity, department, false, payment);
+                    if (equipmentLike)
+                    {
+                        RuntimeCounters.EquipmentReferralIncome += payment;
+                    }
+                    else
+                    {
+                        RuntimeCounters.UnsupportedDiagnosisReferralIncome += payment;
+                    }
+                }
+
+                SetField(state, "m_sentAway", true);
+                SetField(state, "m_sentHome", false);
+                SetField(state, "m_untreated", false);
+                SetField(state, "m_waitingForPlayer", false);
+                SetField(state, "m_bookmarked", false);
+                TryClearBookmark(entity);
+                MedicalCaseRewriteService.MarkReferred(patient, reason);
+
+                if (equipmentLike)
+                {
+                    RuntimeCounters.EquipmentReferrals++;
+                }
+                else
+                {
+                    RuntimeCounters.UnsupportedDiagnosisReferrals++;
+                }
+
+                Debug("Referred blocked case patient to another hospital. Payment=" + payment + ", reason=" + reason + ", equipmentLike=" + equipmentLike + ".");
+                InvokeLeave(patient, false);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                LogError("Blocked case referral failed: " + ex);
+                return false;
+            }
+        }
+
         private static bool ReferPatient(
             Lopital.BehaviorPatient patient,
             GameDBExamination blockedExamination,
@@ -221,7 +313,7 @@ namespace ProjectHospital.AutoLabBalancer
                 return false;
             }
 
-            var payment = CalculateReferralPayment(state, RuntimeSettings.Config == null ? 20 : RuntimeSettings.Config.EquipmentReferralPaymentPercent.Value);
+            var payment = CalculateReferralPayment(patient, state, RuntimeSettings.Config == null ? 20 : RuntimeSettings.Config.EquipmentReferralPaymentPercent.Value);
             if (payment > 0)
             {
                 Pay(entity, department, hospitalized, payment);
@@ -234,6 +326,7 @@ namespace ProjectHospital.AutoLabBalancer
             SetField(state, "m_waitingForPlayer", false);
             SetField(state, "m_bookmarked", false);
             TryClearBookmark(entity);
+            MedicalCaseRewriteService.MarkReferred(patient, reason);
 
             RuntimeCounters.EquipmentReferrals++;
             Debug("Referred equipment-blocked patient to another hospital. Payment=" + payment
@@ -255,7 +348,7 @@ namespace ProjectHospital.AutoLabBalancer
 
             var entity = ReflectionHelpers.GetField(patient, "m_entity") as GLib.Entity;
             var department = ReflectionHelpers.ResolvePointer(ReflectionHelpers.GetField(state, "m_department")) as Lopital.Department;
-            var payment = CalculateReferralPayment(state, RuntimeSettings.Config.UnsupportedDiagnosisReferralPaymentPercent.Value);
+            var payment = CalculateReferralPayment(patient, state, RuntimeSettings.Config.UnsupportedDiagnosisReferralPaymentPercent.Value);
             if (payment > 0)
             {
                 Pay(entity, department, false, payment);
@@ -268,6 +361,7 @@ namespace ProjectHospital.AutoLabBalancer
             SetField(state, "m_waitingForPlayer", false);
             SetField(state, "m_bookmarked", false);
             TryClearBookmark(entity);
+            MedicalCaseRewriteService.MarkReferred(patient, reason);
 
             RuntimeCounters.UnsupportedDiagnosisReferrals++;
             Debug("Referred unsupported diagnosed outpatient to another hospital. Payment=" + payment
@@ -283,7 +377,7 @@ namespace ProjectHospital.AutoLabBalancer
             var state = ReflectionHelpers.GetField(patient, "m_state");
             var entity = ReflectionHelpers.GetField(patient, "m_entity") as GLib.Entity;
             var department = ReflectionHelpers.ResolvePointer(ReflectionHelpers.GetField(state, "m_department")) as Lopital.Department;
-            var payment = CalculateReferralPayment(state, percent);
+            var payment = CalculateReferralPayment(patient, state, percent);
             if (payment <= 0)
             {
                 return 0;
@@ -451,7 +545,7 @@ namespace ProjectHospital.AutoLabBalancer
             return false;
         }
 
-        private static int CalculateReferralPayment(object patientState, int percent)
+        private static int CalculateReferralPayment(Lopital.BehaviorPatient patient, object patientState, int percent)
         {
             if (percent <= 0)
             {
@@ -461,6 +555,17 @@ namespace ProjectHospital.AutoLabBalancer
             if (percent > 100)
             {
                 percent = 100;
+            }
+
+            var casePayment = MedicalCaseRewriteService.GetCaseInsurancePayment(patient, percent);
+            if (MedicalCaseRewriteService.HasCaseRecord(patient))
+            {
+                return Math.Max(0, casePayment);
+            }
+
+            if (casePayment > 0)
+            {
+                return casePayment;
             }
 
             var medicalCondition = ReflectionHelpers.GetField(patientState, "m_medicalCondition");

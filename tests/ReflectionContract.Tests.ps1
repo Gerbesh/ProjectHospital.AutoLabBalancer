@@ -171,6 +171,8 @@ Require-Field "HospitalManagementPanelController" "m_activeTab" | Out-Null
 Require-Method "IconButtonController" "RemoveOnClickDelegate" @() | Out-Null
 Require-Method "IconButtonController" "SetOnClickedDelegate" @("IconButtonController+IconButtonOnClickDelegate") | Out-Null
 Require-Method "IconButtonController" "SetToolTipTextParameters" @("System.String[]") | Out-Null
+Require-Field "PlayerProfile" "m_currentSave" | Out-Null
+Require-Field "Lopital.HospitalPersistentData" "m_hospitalName" | Out-Null
 
 Write-Host "Section: Read-only bottleneck overlay lab counters"
 # Read-only lab counters used by the bottleneck overlay. The old lab auto-balance and
@@ -391,8 +393,29 @@ Write-Host "Section: Referrals"
 Require-Method "Lopital.BehaviorPatient" "TryToStartScheduledExamination" @() | Out-Null
 Require-Method "Lopital.BehaviorPatient" "TryToScheduleExamination" @("System.Boolean") "System.Boolean" | Out-Null
 Require-Method "Lopital.BehaviorPatient" "Leave" @("System.Boolean", "System.Boolean", "System.Boolean") | Out-Null
+Require-Method "Lopital.BehaviorPatient" "SendHome" @() | Out-Null
 Require-Method "Lopital.BehaviorPatient" "Diagnose" @("System.Int32", "System.Boolean") "Lopital.DiagnosisResult" | Out-Null
 Require-Method "Lopital.BehaviorPatient" "DiagnoseNow" @() | Out-Null
+Require-Method "Lopital.BehaviorPatient" "CheckDoctorForDiagnosis" @() | Out-Null
+Require-Method "Lopital.BehaviorPatient" "RandomizeMedicalCondition" @("PatientMobility") | Out-Null
+Require-Method "Lopital.BehaviorPatient" "Update" @("System.Single") | Out-Null
+Require-Method "Lopital.BehaviorPatient" "SetMedicalCondition" @("GameDBMedicalCondition", "System.Boolean", "System.Int32") | Out-Null
+Require-Method "Lopital.BehaviorPatient" "SelectNextProcedure" @() | Out-Null
+Require-Method "Lopital.BehaviorPatient" "GetSpeedModifier" @() "System.Single" | Out-Null
+Require-Method "Lopital.BehaviorPatient" "GetSpecificAnimation" @("System.String") "System.String" | Out-Null
+Require-Method "Lopital.BehaviorPatient" "GetWorstKnownHazard" @() "SymptomHazard" | Out-Null
+Require-Method "Lopital.BehaviorPatient" "GetWorstKnownHazardIgnoreCodeBlue" @() "SymptomHazard" | Out-Null
+Require-Method "Lopital.BehaviorPatient" "GetBleedingLevel" @() "System.Int32" | Out-Null
+Require-Method "Lopital.BehaviorPatient" "TriggerDeath" @() | Out-Null
+Require-Method "Lopital.BehaviorPatient" "TryToCollapse" @() "System.Boolean" | Out-Null
+Require-Method "Lopital.BehaviorPatient" "GetInsurancePayment" @("System.Boolean") "System.Int32" | Out-Null
+Require-Method "Lopital.BehaviorPatient" "UncoverSymptomsFromLastExamination" @("ProcedureScript") "System.Int32" | Out-Null
+Require-Method "Lopital.BehaviorPatient" "UncoverSymptomsFromLabExamination" @("GameDBExamination") "System.Int32" | Out-Null
+Require-Method "Lopital.ProcedureComponent" "GetAllExaminationsForMedicalCondition" @("Lopital.MedicalCondition", "System.Boolean", "System.Boolean") | Out-Null
+Require-Method "Lopital.ProcedureComponent" "UpdateAllExaminationsForMedicalCondition" @("Lopital.MedicalCondition", "System.Int32", "System.Boolean") | Out-Null
+Require-Method "Lopital.ProcedureComponent" "GetAllTreatmentsForMedicalCondition" @("Lopital.MedicalCondition", "Lopital.TreatmentPlanningMode") | Out-Null
+Require-Method "Lopital.ProcedureComponent" "PlanAllTreatments" @("Lopital.MedicalCondition", "System.Boolean", "System.Boolean") "Lopital.TreatmentPlanningResult" | Out-Null
+Require-Method "Lopital.ProcedureComponent" "SuppressSymptoms" @("GameDBTreatment") "System.Int32" | Out-Null
 Require-Method "Lopital.HospitalizationComponent" "IsHospitalized" @() "System.Boolean" | Out-Null
 Require-Property "GameDBExamination" "Procedure" "GameDBProcedure" | Out-Null
 Require-Field "Lopital.BehaviorPatientStateData" "m_medicalCondition" | Out-Null
@@ -404,10 +427,46 @@ Require-Field "Lopital.MedicalCondition" "m_gameDBMedicalCondition" | Out-Null
 Require-Field "Lopital.MedicalCondition" "m_diagnosedMedicalCondition" | Out-Null
 Require-Property "GameDBMedicalCondition" "InsurancePayment" | Out-Null
 Require-Property "GameDBMedicalCondition" "DepartmentRef" | Out-Null
+Require-Property "GameDBMedicalCondition" "Symptoms" | Out-Null
+Require-Property "GameDBMedicalCondition" "Examinations" | Out-Null
+Require-Property "GameDBMedicalCondition" "Treatments" | Out-Null
+Require-Property "GameDBSymptomRules" "GameDBSymptomRef" | Out-Null
+Require-Property "GameDBSymptom" "Hazard" | Out-Null
+Require-Property "GameDBSymptom" "CollapseProcedureRef" | Out-Null
+Require-Property "GameDBSymptom" "CollapseSymptomRef" | Out-Null
+Require-Property "GameDBSymptom" "PatientMobility" | Out-Null
+Require-Property "GameDBSymptom" "CanNotTalk" | Out-Null
+Require-Property "GameDBSymptom" "BleedingLevel" | Out-Null
+Require-Method "Lopital.MedicalCondition" "GetWorstHazard" @() "SymptomHazard" | Out-Null
+Require-Method "Lopital.MedicalCondition" "GetWorstKnownHazard" @("Lopital.ProcedureQueue") "SymptomHazard" | Out-Null
+Require-Method "Lopital.MedicalCondition" "GetWorstPossibleHazard" @() "SymptomHazard" | Out-Null
+Require-Method "Lopital.MedicalCondition" "HasBeenTreated" @("Lopital.ProcedureQueue") "System.Boolean" | Out-Null
+Require-Method "Lopital.MedicalCondition" "HasActiveHazardSymptom" @() "System.Boolean" | Out-Null
+Require-Method "Lopital.MedicalCondition" "HasImmobileSymptom" @() "System.Boolean" | Out-Null
+Require-Method "Lopital.MedicalCondition" "HasCanNotTalkSymptom" @() "System.Boolean" | Out-Null
+Require-Method "Lopital.MedicalCondition" "AnySymptomNeedsHospitalization" @() "System.Boolean" | Out-Null
 Require-Method "Lopital.Department" "Pay" @("System.Int32", "Lopital.PaymentCategory", "GLib.Entity") | Out-Null
 Require-Method "Lopital.Department" "HasWorkingClinic" @() "System.Boolean" | Out-Null
 Require-Method "Lopital.MapScriptInterface" "GetDepartmentOfType" @("GameDBDepartment") "Lopital.Department" | Out-Null
+Require-Method "CharacterPanelPatientPanelController" "FillPatientData" @("Lopital.BehaviorPatient") | Out-Null
 Require-Method "CharacterPanelPatientPanelController" "SendPatientToAnotherHospital" @() | Out-Null
+Require-Method "DiagnosisPanelController" "UpdateDiagnoses" @("GLib.Entity") | Out-Null
+Require-Field "CharacterPanelPatientPanelController" "m_diagnosesListButton" | Out-Null
+Require-Field "CharacterPanelPatientPanelController" "m_symptomsPanel" | Out-Null
+Require-Field "CharacterPanelPatientPanelController" "m_diagnosisFinalStaticSegment" | Out-Null
+Require-Field "CharacterPanelPatientPanelController" "m_diagnosisPossibleStaticSegment" | Out-Null
+Require-AnyMethod "SymptomsPanelController" "UpdateSymptoms" | Out-Null
+Require-Method "Lopital.MedicalCondition" "GetNumberOfHiddenSymptoms" @() "System.Int32" | Out-Null
+Require-Method "Lopital.MedicalCondition" "GetSpawnedSymptomCount" @() "System.Int32" | Out-Null
+Require-Method "SegmentController" "SetLayout" @("System.Int32", "System.Int32") | Out-Null
+Require-Method "SegmentController" "SetItem" @("System.Int32", "System.Int32", "SegmentItemInteractivity", "System.String", "System.Boolean") | Out-Null
+Require-Method "SegmentController" "UpdateVisibility" @() | Out-Null
+Require-Method "SegmentItemPercentageController" "UpdateData" @("System.String", "System.String", "System.Boolean") | Out-Null
+Require-AnyMethod "SegmentItemPercentageController" "UpdateIcon" | Out-Null
+Require-Method "TooltipDiagnosis" "UpdateData" @("GameDBMedicalCondition", "System.String", "System.Int32", "System.Int32") | Out-Null
+Require-Field "SegmentController" "m_displayedItemCount" | Out-Null
+Require-Field "SegmentController" "m_dirty" | Out-Null
+Require-Field "SegmentController" "m_heading" | Out-Null
 Require-Method "Lopital.AmbulanceManager" "GetFreeExternalAmbulance" @() "Lopital.Ambulance" | Out-Null
 Require-Method "Lopital.Ambulance" "UpdateExternalAmbulanceComingBackWithPatient" @("System.Single") | Out-Null
 Require-Method "Lopital.Ambulance" "UpdateExternalAmbulanceMovingOutOfMap" @("System.Single") | Out-Null
@@ -490,7 +549,6 @@ Require-Field "Lopital.InsuranceCompany" "m_currentImmobilePatients" | Out-Null
 Require-Field "Lopital.InsuranceCompany" "m_patientsSpawnedOutpatients" | Out-Null
 Require-Method "Lopital.InsuranceCompany" "IsContracted" @() "System.Boolean" | Out-Null
 Require-Method "Lopital.InsuranceCompany" "AddGeneratedPatient" @("System.Int32", "System.Int32", "PatientMobility", "System.Boolean") | Out-Null
-Require-Method "Lopital.InsuranceCompany" "GetVisitTime" @("System.Single", "System.Single", "System.Boolean", "Lopital.Department") "System.Single" | Out-Null
 Require-Method "Lopital.Hospital" "GetRandomDepartmentWithDiagnoses" @("PatientMobility") "Lopital.Department" | Out-Null
 Require-Method "Lopital.Department" "AcceptsOutpatients" @() "System.Boolean" | Out-Null
 Require-Method "Lopital.Department" "IsClosed" @() "System.Boolean" | Out-Null

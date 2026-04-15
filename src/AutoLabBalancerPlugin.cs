@@ -25,16 +25,48 @@ namespace ProjectHospital.AutoLabBalancer
         private float _nextSurgeryAnalyticsAt;
         private BottleneckSnapshot _overlaySnapshot;
         private bool _showSettings;
-        private Rect _settingsWindow = new Rect(30f, 80f, 720f, 520f);
+        private Rect _settingsWindow = new Rect(30f, 80f, 860f, 620f);
         private int _settingsPage;
+        private int _settingsCategory;
+        private Vector2 _settingsScroll;
+        private SaveScopedSettings _saveScopedSettings;
+        private GUIStyle _settingsWindowStyle;
+        private GUIStyle _settingsHeaderPanelStyle;
+        private GUIStyle _settingsHeaderStyle;
+        private GUIStyle _settingsMutedLabelStyle;
+        private GUIStyle _settingsPageButtonStyle;
+        private GUIStyle _settingsPageButtonActiveStyle;
+        private GUIStyle _settingsCategoryButtonStyle;
+        private GUIStyle _settingsCategoryButtonActiveStyle;
+        private GUIStyle _settingsSectionStyle;
+        private GUIStyle _settingsContentPanelStyle;
+        private GUIStyle _settingsSectionHeaderStyle;
+        private GUIStyle _settingsToggleStyle;
+        private GUIStyle _settingsPrimaryButtonStyle;
+        private GUIStyle _settingsScrollViewStyle;
+        private GUIStyle _settingsTextBlockStyle;
+        private Texture2D _settingsWindowTexture;
+        private Texture2D _settingsHeaderTexture;
+        private Texture2D _settingsSectionTexture;
+        private Texture2D _settingsButtonTexture;
+        private Texture2D _settingsButtonActiveTexture;
+        private float _nextSettingsDiagnosticsRefreshAt;
+        private string _cachedCountersText;
+        private string _cachedBottlenecksText;
+        private string _cachedSurgeryText;
+        private string _cachedPerformanceText;
+        private string _developerActionStatus;
 
         private void Awake()
         {
             Logger.LogInfo(ModText.T("PluginName") + ModText.T("AwakeStarted"));
             _config = AutoLabBalancerConfig.Bind(Config);
+            _saveScopedSettings = new SaveScopedSettings(Logger);
+            _saveScopedSettings.CaptureGlobalDefaults(_config);
             _nextTickAt = 0f;
             RuntimeSettings.Config = _config;
             RuntimeSettings.Logger = Logger;
+            RuntimeSettings.SaveSettings = _saveScopedSettings;
 
             try
             {
@@ -62,6 +94,8 @@ namespace ProjectHospital.AutoLabBalancer
                 return;
             }
 
+            _saveScopedSettings.RefreshScope(_config);
+            TraceLoggingService.Tick(Time.realtimeSinceStartup);
             PerformanceProfiler.Tick(Time.realtimeSinceStartup);
             FramePacingService.Tick();
             SchedulingEngineService.Tick(Time.realtimeSinceStartup);
@@ -76,10 +110,12 @@ namespace ProjectHospital.AutoLabBalancer
 
             try
             {
+                RefreshSettingsDiagnosticsCache(force: true);
                 PerformanceOptimizationService.Tick(Time.realtimeSinceStartup);
                 ProductivityTweaksService.Tick(Time.realtimeSinceStartup);
                 UnknownEmployeeService.Tick(Time.realtimeSinceStartup);
                 IntakeControlService.ApplyDailyCap();
+                MedicalCaseRewriteService.Tick();
                 TickSurgeryAnalytics();
             }
             catch (Exception ex)
@@ -153,17 +189,40 @@ namespace ProjectHospital.AutoLabBalancer
 
         private void OnGUI()
         {
+            MedicalCaseRewriteService.DrawCaseWindow();
+
             if (!_showSettings)
             {
                 return;
             }
 
-            _settingsWindow = GUILayout.Window(871234, _settingsWindow, DrawSettingsWindow, ModText.T("WindowTitle"));
+            EnsureSettingsStyles();
+            var oldColor = GUI.color;
+            var oldBackground = GUI.backgroundColor;
+            var oldContent = GUI.contentColor;
+            try
+            {
+                GUI.color = Color.white;
+                GUI.backgroundColor = Color.white;
+                GUI.contentColor = Color.white;
+                _settingsWindow = GUILayout.Window(871234, _settingsWindow, DrawSettingsWindow, string.Empty, _settingsWindowStyle);
+            }
+            finally
+            {
+                GUI.color = oldColor;
+                GUI.backgroundColor = oldBackground;
+                GUI.contentColor = oldContent;
+            }
         }
 
         private void DrawSettingsWindow(int windowId)
         {
-            GUILayout.Label(ModText.T("SettingsSaved"));
+            _saveScopedSettings.RefreshScope(_config);
+            GUILayout.BeginVertical();
+            DrawSettingsHeader();
+            GUILayout.Space(8f);
+
+            GUILayout.BeginVertical(_settingsSectionStyle);
             GUILayout.BeginHorizontal();
             DrawPageButton(0, ModText.T("PageSettings"));
             DrawPageButton(1, ModText.T("PageCounters"));
@@ -171,8 +230,11 @@ namespace ProjectHospital.AutoLabBalancer
             DrawPageButton(3, ModText.T("PageSurgery"));
             DrawPageButton(4, ModText.T("PagePerformance"));
             GUILayout.EndHorizontal();
+            GUILayout.EndVertical();
 
             GUILayout.Space(8f);
+            GUILayout.BeginVertical(_settingsContentPanelStyle, GUILayout.ExpandHeight(true));
+            _settingsScroll = GUILayout.BeginScrollView(_settingsScroll, false, true, GUIStyle.none, GUI.skin.verticalScrollbar, _settingsScrollViewStyle, GUILayout.ExpandHeight(true));
             if (_settingsPage == 0)
             {
                 DrawSettingsPage();
@@ -193,115 +255,76 @@ namespace ProjectHospital.AutoLabBalancer
             {
                 DrawPerformancePage();
             }
+            GUILayout.EndScrollView();
+            GUILayout.EndVertical();
 
             GUILayout.Space(8f);
-            if (GUILayout.Button(ModText.T("Close")))
+            GUILayout.BeginHorizontal();
+            GUILayout.FlexibleSpace();
+            if (GUILayout.Button(ModText.T("Close"), _settingsPrimaryButtonStyle, GUILayout.Width(200f), GUILayout.Height(30f)))
             {
                 _showSettings = false;
             }
+            GUILayout.EndHorizontal();
+            GUILayout.EndVertical();
 
-            GUI.DragWindow();
+            GUI.DragWindow(new Rect(0f, 0f, 10000f, 40f));
         }
 
         private void DrawPageButton(int page, string label)
         {
-            var text = _settingsPage == page ? "[" + label + "]" : label;
-            if (GUILayout.Button(text))
+            var style = _settingsPage == page ? _settingsPageButtonActiveStyle : _settingsPageButtonStyle;
+            if (GUILayout.Button(label, style, GUILayout.Height(28f)))
             {
                 _settingsPage = page;
+                _settingsScroll = Vector2.zero;
             }
         }
 
         private void DrawSettingsPage()
         {
-            var blockNegativePerks = GUILayout.Toggle(_config.PreventNegativeEmployeePerks.Value, ModText.T("BlockNegativePerks"));
-            if (blockNegativePerks != _config.PreventNegativeEmployeePerks.Value)
-            {
-                _config.PreventNegativeEmployeePerks.Value = blockNegativePerks;
-                Config.Save();
-            }
-
-            var debugLog = GUILayout.Toggle(_config.EnableDebugLog.Value, ModText.T("DebugLog"));
-            if (debugLog != _config.EnableDebugLog.Value)
-            {
-                _config.EnableDebugLog.Value = debugLog;
-                Config.Save();
-            }
+            GUILayout.BeginVertical(_settingsSectionStyle);
+            GUILayout.BeginHorizontal();
+            DrawSettingsCategoryButton(0, ModText.T("SettingsCategoryGameplay"));
+            DrawSettingsCategoryButton(1, ModText.T("SettingsCategoryPatients"));
+            DrawSettingsCategoryButton(2, ModText.T("SettingsCategoryPerformance"));
+            DrawSettingsCategoryButton(3, ModText.T("SettingsCategoryDeveloper"));
+            GUILayout.EndHorizontal();
+            GUILayout.EndVertical();
 
             GUILayout.Space(8f);
-            GUILayout.Label(ModText.T("ProductivityTweaks"));
-            DrawToggle(_config.EnableCustomPerks, ModText.T("EnableCustomPerks"));
-            DrawToggle(_config.EnableUnknownEmployees, ModText.T("EnableUnknownEmployees"));
-            DrawToggle(_config.EnableAggressiveMedicationPlanning, ModText.T("PlanMedication"));
-            DrawToggle(_config.EnablePostSurgeryCleanupPriority, ModText.T("PrioritizeOrCleanup"));
-            DrawToggle(_config.EnableJanitorStandbyAfterCleaning, ModText.T("JanitorStandbyAfterCleaning"));
-            DrawToggle(_config.EnableStuckReservationCleanup, ModText.T("CleanStuckReservations"));
-            DrawToggle(_config.EnableFlexibleStretcherPickup, ModText.T("FlexibleStretcherPickup"));
-            DrawToggle(_config.EnableChainedHospitalizedExaminations, ModText.T("ChainDiagnostics"));
-            DrawToggle(_config.EnableTransportReservationTimeout, ModText.T("RetryTransportReservations"));
-            DrawToggle(_config.EnableNurseCheckDischarge, ModText.T("NurseCheckDischarge"));
-            DrawToggle(_config.EnableEmergencyRunSpeedBoost, ModText.T("EmergencyRunSpeedBoost"));
-            DrawToggle(_config.EnableNurseAssistedORCleanup, ModText.T("NurseAssistedOrCleanup"));
-            DrawToggle(_config.EnableEquipmentReferral, ModText.T("EquipmentReferral"));
-            DrawToggle(_config.EnableUnsupportedDiagnosisReferral, ModText.T("UnsupportedDiagnosisReferral"));
-            DrawToggle(_config.EnableManualReferralPayment, ModText.T("ManualReferralPayment"));
-            DrawToggle(_config.EnableExternalTransferQueueBroker, ModText.T("ExternalTransferQueueBroker"));
-            DrawToggle(_config.EnableExternalTransferParamedicSpeed, ModText.T("ExternalTransferParamedicSpeed"));
-            DrawToggle(_config.EnableDebugProductivityLog, ModText.T("ProductivityDebugLog"));
-            DrawToggle(_config.EnableBottleneckOverlay, ModText.T("ShowBottleneckOverlay"));
-            DrawToggle(_config.EnableSurgeryAnalyticsLog, ModText.T("SurgeryAnalyticsLog"));
-            DrawToggle(_config.EnableSurgeryTooltipFix, ModText.T("FixSurgeryTooltip"));
-            GUILayout.Space(8f);
-            GUILayout.Label(ModText.T("PerformanceProfiler"));
-            DrawToggle(_config.EnablePerformanceProfiler, ModText.T("EnablePerformanceProfiler"));
-            DrawToggle(_config.ProfilerAutoResetAfterLog, ModText.T("ProfilerAutoResetAfterLog"));
-            DrawToggle(_config.EnableFramePacing, ModText.T("EnableFramePacing"));
-            DrawToggle(_config.FramePacingUseMonitorRefreshRate, ModText.T("FramePacingUseMonitorRefreshRate"));
-            DrawToggle(_config.EnablePerformanceOptimizations, ModText.T("EnablePerformanceOptimizations"));
-            GUILayout.Space(8f);
-            GUILayout.Label(ModText.T("IntakeControl"));
-            DrawToggle(_config.EnableIntakeControl, ModText.T("EnableIntakeControl"));
-            DrawToggle(_config.EnableDynamicIntakeByDoctors, ModText.T("EnableDynamicIntakeByDoctors"));
-            GUILayout.Space(8f);
-            GUILayout.Label(ModText.T("DeveloperTools"));
-            DrawToggle(_config.DevCheapUpgrades, ModText.T("DevCheapUpgrades"));
-            DrawToggle(_config.EnableAbsurdUpgrades, ModText.T("EnableAbsurdUpgrades"));
+            if (_settingsCategory == 0)
+            {
+                DrawSectionCard(ModText.T("SettingsCategoryGameplay"), DrawGameplaySettingsCategory);
+            }
+            else if (_settingsCategory == 1)
+            {
+                DrawSectionCard(ModText.T("SettingsCategoryPatients"), DrawPatientSettingsCategory);
+            }
+            else if (_settingsCategory == 2)
+            {
+                DrawSectionCard(ModText.T("SettingsCategoryPerformance"), DrawPerformanceSettingsCategory);
+            }
+            else
+            {
+                DrawSectionCard(ModText.T("SettingsCategoryDeveloper"), DrawDeveloperSettingsCategory);
+            }
         }
 
         private void DrawCountersPage()
         {
-            GUILayout.Label(ModText.T("PageCounters"));
-            GUILayout.BeginHorizontal();
-            GUILayout.BeginVertical();
-            GUILayout.Label(ModText.T("MedicationAutoAdded") + RuntimeCounters.MedicationsAutoPlanned);
-            GUILayout.Label(ModText.T("OrCleanupPriorities") + RuntimeCounters.ORCleanupPrioritiesCreated);
-            GUILayout.Label(ModText.T("NurseOrTilesCleaned") + RuntimeCounters.NurseORTilesCleaned);
-            GUILayout.EndVertical();
-            GUILayout.BeginVertical();
-            GUILayout.Label(ModText.T("StuckReservationsCleared") + RuntimeCounters.StuckReservationsCleared);
-            GUILayout.Label(ModText.T("FlexibleTransportFallbacks") + RuntimeCounters.FlexibleTransportFallbacks);
-            GUILayout.Label(ModText.T("TransportReservationsRetried") + RuntimeCounters.TransportReservationsRetried);
-            GUILayout.Label(ModText.T("EmergencySpeedBoosts") + RuntimeCounters.EmergencySpeedBoosts);
-            GUILayout.Label(ModText.T("EquipmentReferrals") + RuntimeCounters.EquipmentReferrals);
-            GUILayout.Label(ModText.T("ReferralIncome") + RuntimeCounters.EquipmentReferralIncome);
-            GUILayout.Label(ModText.T("UnsupportedDiagnosisReferrals") + RuntimeCounters.UnsupportedDiagnosisReferrals);
-            GUILayout.Label(ModText.T("UnsupportedDiagnosisIncome") + RuntimeCounters.UnsupportedDiagnosisReferralIncome);
-            GUILayout.Label(ModText.T("ManualReferralPayments") + RuntimeCounters.ManualReferralPayments);
-            GUILayout.Label(ModText.T("ManualReferralIncome") + RuntimeCounters.ManualReferralIncome);
-            GUILayout.EndVertical();
-            GUILayout.EndHorizontal();
+            DrawSectionCard(ModText.T("PageCounters"), delegate
+            {
+                GUILayout.Label(_cachedCountersText ?? string.Empty, _settingsTextBlockStyle);
+            });
         }
 
         private void DrawBottlenecksPage(bool surgeryOnly)
         {
-            if (_config.EnableBottleneckOverlay.Value)
+            DrawSectionCard(ModText.T(surgeryOnly ? "PageSurgery" : "PageBottlenecks"), delegate
             {
-                DrawBottleneckOverlay(surgeryOnly);
-            }
-            else
-            {
-                GUILayout.Label(ModText.T("OverlayDisabled"));
-            }
+                GUILayout.Label(surgeryOnly ? (_cachedSurgeryText ?? string.Empty) : (_cachedBottlenecksText ?? string.Empty), _settingsTextBlockStyle);
+            });
         }
 
         private void DrawBottleneckOverlay(bool surgeryOnly)
@@ -390,37 +413,467 @@ namespace ProjectHospital.AutoLabBalancer
 
         private void DrawPerformancePage()
         {
-            GUILayout.Label(ModText.T("PagePerformance"));
+            DrawSectionCard(ModText.T("PagePerformance"), delegate
+            {
+            GUILayout.Label(_cachedPerformanceText ?? string.Empty, _settingsTextBlockStyle);
+            GUILayout.Space(8f);
+
+            if (GUILayout.Button(ModText.T("PerformanceProfilerReset")))
+            {
+                PerformanceProfiler.Reset();
+                SchedulingEngineService.ResetCounters();
+                PerformanceOptimizationService.ResetCounters();
+            }
+            });
+        }
+
+        private void DrawToggle(ConfigEntry<bool> entry, string label)
+        {
+            var value = GUILayout.Toggle(entry.Value, label, _settingsToggleStyle);
+            if (value != entry.Value)
+            {
+                entry.Value = value;
+                if (_saveScopedSettings != null && _saveScopedSettings.HasActiveScope)
+                {
+                    _saveScopedSettings.SetOverride(entry, value);
+                }
+                else
+                {
+                    Config.Save();
+                }
+            }
+        }
+
+        private void DrawSettingsHeader()
+        {
+            GUILayout.BeginVertical(_settingsHeaderPanelStyle);
+            GUILayout.Label(ModText.T("WindowTitle"), _settingsHeaderStyle);
+            GUILayout.Label(ModText.T("SettingsSaved"), _settingsMutedLabelStyle);
+            GUILayout.Label(_saveScopedSettings.HasActiveScope
+                ? ModText.T("SaveSettingsScope") + _saveScopedSettings.ScopeDisplayName
+                : ModText.T("SaveSettingsGlobalScope"), _settingsMutedLabelStyle);
+            GUILayout.EndVertical();
+        }
+
+        private void DrawSettingsCategoryButton(int category, string label)
+        {
+            var style = _settingsCategory == category ? _settingsCategoryButtonActiveStyle : _settingsCategoryButtonStyle;
+            if (GUILayout.Button(label, style, GUILayout.Height(28f)))
+            {
+                _settingsCategory = category;
+                _settingsScroll = Vector2.zero;
+            }
+        }
+
+        private void DrawSectionCard(string title, Action content)
+        {
+            GUILayout.BeginVertical(_settingsSectionStyle);
+            GUILayout.Label(title, _settingsSectionHeaderStyle);
+            GUILayout.Space(4f);
+            if (content != null)
+            {
+                content();
+            }
+            GUILayout.EndVertical();
+        }
+
+        private void DrawGameplaySettingsCategory()
+        {
+            var blockNegativePerks = GUILayout.Toggle(_config.PreventNegativeEmployeePerks.Value, ModText.T("BlockNegativePerks"), _settingsToggleStyle);
+            if (blockNegativePerks != _config.PreventNegativeEmployeePerks.Value)
+            {
+                _config.PreventNegativeEmployeePerks.Value = blockNegativePerks;
+                Config.Save();
+            }
+
+            GUILayout.Space(4f);
+            GUILayout.Label(ModText.T("ProductivityTweaks"), _settingsSectionHeaderStyle);
+            DrawToggle(_config.EnableCustomPerks, ModText.T("EnableCustomPerks"));
+            DrawToggle(_config.EnableUnknownEmployees, ModText.T("EnableUnknownEmployees"));
+            DrawToggle(_config.EnableAggressiveMedicationPlanning, ModText.T("PlanMedication"));
+            DrawToggle(_config.EnablePostSurgeryCleanupPriority, ModText.T("PrioritizeOrCleanup"));
+            DrawToggle(_config.EnableJanitorStandbyAfterCleaning, ModText.T("JanitorStandbyAfterCleaning"));
+            DrawToggle(_config.EnableStuckReservationCleanup, ModText.T("CleanStuckReservations"));
+            DrawToggle(_config.EnableFlexibleStretcherPickup, ModText.T("FlexibleStretcherPickup"));
+            DrawToggle(_config.EnableChainedHospitalizedExaminations, ModText.T("ChainDiagnostics"));
+            DrawToggle(_config.EnableTransportReservationTimeout, ModText.T("RetryTransportReservations"));
+            DrawToggle(_config.EnableNurseCheckDischarge, ModText.T("NurseCheckDischarge"));
+            DrawToggle(_config.EnableEmergencyRunSpeedBoost, ModText.T("EmergencyRunSpeedBoost"));
+            DrawToggle(_config.EnableNurseAssistedORCleanup, ModText.T("NurseAssistedOrCleanup"));
+            DrawToggle(_config.EnableSurgeryTooltipFix, ModText.T("FixSurgeryTooltip"));
+        }
+
+        private void DrawPatientSettingsCategory()
+        {
+            GUILayout.Label(ModText.T("IntakeControl"), _settingsSectionHeaderStyle);
+            DrawToggle(_config.EnableIntakeControl, ModText.T("EnableIntakeControl"));
+            DrawToggle(_config.EnableDynamicIntakeByDoctors, ModText.T("EnableDynamicIntakeByDoctors"));
+
+            GUILayout.Space(6f);
+            GUILayout.Label(ModText.T("MedicalCaseRewrite"), _settingsSectionHeaderStyle);
+            DrawToggle(_config.EnableMedicalCaseRewrite, ModText.T("EnableMedicalCaseRewrite"));
+            DrawToggle(_config.EnableHopelessCases, ModText.T("EnableHopelessCases"));
+            DrawToggle(_config.HopelessRequiresHospitalUpgrades, ModText.T("HopelessRequiresHospitalUpgrades"));
+
+            GUILayout.Space(6f);
+            GUILayout.Label(ModText.T("ExternalTransferQueueBroker"), _settingsSectionHeaderStyle);
+            DrawToggle(_config.EnableEquipmentReferral, ModText.T("EquipmentReferral"));
+            DrawToggle(_config.EnableUnsupportedDiagnosisReferral, ModText.T("UnsupportedDiagnosisReferral"));
+            DrawToggle(_config.EnableManualReferralPayment, ModText.T("ManualReferralPayment"));
+            DrawToggle(_config.EnableExternalTransferQueueBroker, ModText.T("ExternalTransferQueueBroker"));
+            DrawToggle(_config.EnableExternalTransferParamedicSpeed, ModText.T("ExternalTransferParamedicSpeed"));
+        }
+
+        private void DrawPerformanceSettingsCategory()
+        {
+            GUILayout.Label(ModText.T("PerformanceProfiler"), _settingsSectionHeaderStyle);
+            DrawToggle(_config.EnablePerformanceProfiler, ModText.T("EnablePerformanceProfiler"));
+            DrawToggle(_config.ProfilerAutoResetAfterLog, ModText.T("ProfilerAutoResetAfterLog"));
+            DrawToggle(_config.EnableFramePacing, ModText.T("EnableFramePacing"));
+            DrawToggle(_config.FramePacingUseMonitorRefreshRate, ModText.T("FramePacingUseMonitorRefreshRate"));
+            DrawToggle(_config.EnablePerformanceOptimizations, ModText.T("EnablePerformanceOptimizations"));
+
+            GUILayout.Space(6f);
+            GUILayout.Label(ModText.T("PageBottlenecks"), _settingsSectionHeaderStyle);
+            DrawToggle(_config.EnableBottleneckOverlay, ModText.T("ShowBottleneckOverlay"));
+        }
+
+        private void DrawDeveloperSettingsCategory()
+        {
+            var debugLog = GUILayout.Toggle(_config.EnableDebugLog.Value, ModText.T("DebugLog"), _settingsToggleStyle);
+            if (debugLog != _config.EnableDebugLog.Value)
+            {
+                _config.EnableDebugLog.Value = debugLog;
+                Config.Save();
+            }
+
+            DrawToggle(_config.EnableDebugProductivityLog, ModText.T("ProductivityDebugLog"));
+            DrawToggle(_config.CaseRewriteDebugLog, ModText.T("CaseRewriteDebugLog"));
+            DrawToggle(_config.EnableDeepTraceLog, ModText.T("DeepTraceLog"));
+            DrawToggle(_config.EnableSurgeryAnalyticsLog, ModText.T("SurgeryAnalyticsLog"));
+
+            if (_config.EnableDeepTraceLog.Value)
+            {
+                var tracePath = TraceLoggingService.CurrentLogPath;
+                if (!string.IsNullOrEmpty(tracePath))
+                {
+                    GUILayout.Label(ModText.F("DeepTraceLogPath", tracePath), _settingsMutedLabelStyle);
+                }
+            }
+
+            GUILayout.Space(6f);
+            GUILayout.Label(ModText.T("DeveloperTools"), _settingsSectionHeaderStyle);
+            DrawToggle(_config.EnableHospitalUpgrades, ModText.T("EnableHospitalUpgrades"));
+            DrawToggle(_config.DevCheapUpgrades, ModText.T("DevCheapUpgrades"));
+            DrawToggle(_config.EnableAbsurdUpgrades, ModText.T("EnableAbsurdUpgrades"));
+
+            GUILayout.Space(10f);
+            if (GUILayout.Button(ModText.T("DevRemoveAllPatients"), _settingsPrimaryButtonStyle, GUILayout.Height(28f)))
+            {
+                var removed = DeveloperToolsService.RemoveAllPatients();
+                _developerActionStatus = ModText.F("DevRemoveAllPatientsResult", removed);
+                RefreshSettingsDiagnosticsCache(force: true);
+            }
+
+            if (!string.IsNullOrEmpty(_developerActionStatus))
+            {
+                GUILayout.Label(_developerActionStatus, _settingsMutedLabelStyle);
+            }
+        }
+
+        private void EnsureSettingsStyles()
+        {
+            if (_settingsWindowStyle != null)
+            {
+                return;
+            }
+
+            _settingsWindowTexture = MakeSolidTexture(new Color(0.94f, 0.94f, 0.94f, 1f));
+            _settingsHeaderTexture = MakeSolidTexture(new Color(0.28f, 0.28f, 0.28f, 1f));
+            _settingsSectionTexture = MakeSolidTexture(new Color(0.90f, 0.90f, 0.90f, 1f));
+            _settingsButtonTexture = MakeSolidTexture(new Color(0.40f, 0.40f, 0.40f, 1f));
+            _settingsButtonActiveTexture = MakeSolidTexture(new Color(0.22f, 0.22f, 0.22f, 1f));
+
+            _settingsWindowStyle = new GUIStyle(GUI.skin.window)
+            {
+                padding = new RectOffset(12, 12, 12, 12),
+                margin = new RectOffset(0, 0, 0, 0)
+            };
+            _settingsWindowStyle.normal.background = _settingsWindowTexture;
+            _settingsWindowStyle.active.background = _settingsWindowTexture;
+            _settingsWindowStyle.focused.background = _settingsWindowTexture;
+            _settingsWindowStyle.hover.background = _settingsWindowTexture;
+            _settingsWindowStyle.normal.textColor = Color.black;
+
+            _settingsHeaderStyle = new GUIStyle(GUI.skin.label)
+            {
+                alignment = TextAnchor.MiddleCenter,
+                fontSize = 18,
+                fontStyle = FontStyle.Bold,
+                normal = { textColor = Color.white }
+            };
+
+            _settingsMutedLabelStyle = new GUIStyle(GUI.skin.label)
+            {
+                wordWrap = true,
+                normal = { textColor = new Color(0.90f, 0.90f, 0.90f, 1f) }
+            };
+
+            _settingsHeaderPanelStyle = new GUIStyle(GUI.skin.box)
+            {
+                padding = new RectOffset(10, 10, 10, 10),
+                margin = new RectOffset(0, 0, 0, 8)
+            };
+            _settingsHeaderPanelStyle.normal.background = _settingsHeaderTexture;
+            _settingsHeaderPanelStyle.normal.textColor = Color.white;
+
+            _settingsSectionStyle = new GUIStyle(GUI.skin.box)
+            {
+                padding = new RectOffset(10, 10, 10, 10),
+                margin = new RectOffset(0, 0, 0, 8)
+            };
+            _settingsSectionStyle.normal.background = _settingsSectionTexture;
+            _settingsSectionStyle.normal.textColor = Color.black;
+
+            _settingsScrollViewStyle = new GUIStyle(GUI.skin.box)
+            {
+                padding = new RectOffset(8, 8, 8, 8),
+                margin = new RectOffset(0, 0, 0, 0)
+            };
+            _settingsScrollViewStyle.normal.background = _settingsWindowTexture;
+            _settingsScrollViewStyle.hover.background = _settingsWindowTexture;
+            _settingsScrollViewStyle.active.background = _settingsWindowTexture;
+            _settingsScrollViewStyle.focused.background = _settingsWindowTexture;
+
+            _settingsContentPanelStyle = new GUIStyle(GUI.skin.box)
+            {
+                padding = new RectOffset(8, 8, 8, 8),
+                margin = new RectOffset(0, 0, 0, 0)
+            };
+            _settingsContentPanelStyle.normal.background = _settingsWindowTexture;
+            _settingsContentPanelStyle.hover.background = _settingsWindowTexture;
+            _settingsContentPanelStyle.active.background = _settingsWindowTexture;
+            _settingsContentPanelStyle.focused.background = _settingsWindowTexture;
+
+            _settingsSectionHeaderStyle = new GUIStyle(GUI.skin.label)
+            {
+                fontStyle = FontStyle.Bold,
+                fontSize = 13,
+                wordWrap = true,
+                normal = { textColor = new Color(0.15f, 0.15f, 0.15f, 1f) }
+            };
+
+            _settingsPageButtonStyle = BuildButtonStyle(_settingsButtonTexture, Color.white);
+            _settingsPageButtonActiveStyle = BuildButtonStyle(_settingsButtonActiveTexture, Color.white);
+            _settingsCategoryButtonStyle = BuildButtonStyle(_settingsButtonTexture, Color.white);
+            _settingsCategoryButtonActiveStyle = BuildButtonStyle(_settingsButtonActiveTexture, Color.white);
+            _settingsPrimaryButtonStyle = BuildButtonStyle(_settingsButtonTexture, Color.white);
+
+            _settingsToggleStyle = new GUIStyle(GUI.skin.toggle)
+            {
+                wordWrap = true,
+                padding = new RectOffset(20, 4, 4, 4),
+                margin = new RectOffset(2, 2, 2, 2)
+            };
+            _settingsToggleStyle.normal.textColor = Color.black;
+            _settingsToggleStyle.onNormal.textColor = Color.black;
+            _settingsToggleStyle.hover.textColor = Color.black;
+            _settingsToggleStyle.onHover.textColor = Color.black;
+            _settingsToggleStyle.focused.textColor = Color.black;
+            _settingsToggleStyle.onFocused.textColor = Color.black;
+
+            _settingsTextBlockStyle = new GUIStyle(GUI.skin.label)
+            {
+                wordWrap = true,
+                richText = false,
+                normal = { textColor = Color.black }
+            };
+        }
+
+        private GUIStyle BuildButtonStyle(Texture2D background, Color textColor)
+        {
+            var style = new GUIStyle(GUI.skin.button)
+            {
+                fontStyle = FontStyle.Bold,
+                alignment = TextAnchor.MiddleCenter,
+                fixedHeight = 0f,
+                wordWrap = true,
+                padding = new RectOffset(8, 8, 6, 6)
+            };
+            style.normal.background = background;
+            style.hover.background = background;
+            style.active.background = background;
+            style.focused.background = background;
+            style.normal.textColor = textColor;
+            style.hover.textColor = textColor;
+            style.active.textColor = textColor;
+            style.focused.textColor = textColor;
+            return style;
+        }
+
+        private Texture2D MakeSolidTexture(Color color)
+        {
+            var texture = new Texture2D(1, 1, TextureFormat.RGBA32, false);
+            texture.SetPixel(0, 0, color);
+            texture.Apply();
+            texture.hideFlags = HideFlags.HideAndDontSave;
+            return texture;
+        }
+
+        private void RefreshSettingsDiagnosticsCache(bool force = false)
+        {
+            if (!force && Time.realtimeSinceStartup < _nextSettingsDiagnosticsRefreshAt)
+            {
+                return;
+            }
+
+            _nextSettingsDiagnosticsRefreshAt = Time.realtimeSinceStartup + 0.5f;
+            _cachedCountersText = BuildCountersText();
+            _cachedBottlenecksText = BuildBottlenecksText(false);
+            _cachedSurgeryText = BuildBottlenecksText(true);
+            _cachedPerformanceText = BuildPerformanceText();
+        }
+
+        private string BuildCountersText()
+        {
+            var lines = new List<string>
+            {
+                ModText.T("MedicationAutoAdded") + RuntimeCounters.MedicationsAutoPlanned,
+                ModText.T("OrCleanupPriorities") + RuntimeCounters.ORCleanupPrioritiesCreated,
+                ModText.T("NurseOrTilesCleaned") + RuntimeCounters.NurseORTilesCleaned,
+                ModText.T("StuckReservationsCleared") + RuntimeCounters.StuckReservationsCleared,
+                ModText.T("FlexibleTransportFallbacks") + RuntimeCounters.FlexibleTransportFallbacks,
+                ModText.T("TransportReservationsRetried") + RuntimeCounters.TransportReservationsRetried,
+                ModText.T("EmergencySpeedBoosts") + RuntimeCounters.EmergencySpeedBoosts,
+                ModText.T("EquipmentReferrals") + RuntimeCounters.EquipmentReferrals,
+                ModText.T("ReferralIncome") + RuntimeCounters.EquipmentReferralIncome,
+                ModText.T("UnsupportedDiagnosisReferrals") + RuntimeCounters.UnsupportedDiagnosisReferrals,
+                ModText.T("UnsupportedDiagnosisIncome") + RuntimeCounters.UnsupportedDiagnosisReferralIncome,
+                ModText.T("ManualReferralPayments") + RuntimeCounters.ManualReferralPayments,
+                ModText.T("ManualReferralIncome") + RuntimeCounters.ManualReferralIncome
+            };
+            return string.Join("\n", lines.ToArray());
+        }
+
+        private string BuildBottlenecksText(bool surgeryOnly)
+        {
+            if (!_config.EnableBottleneckOverlay.Value)
+            {
+                return ModText.T("OverlayDisabled");
+            }
+
+            if (_overlaySnapshot == null || Time.realtimeSinceStartup >= _nextOverlaySnapshotAt)
+            {
+                _overlaySnapshot = BottleneckOverlayService.CreateSnapshot();
+                _nextOverlaySnapshotAt = Time.realtimeSinceStartup + 2f;
+            }
+
+            if (_overlaySnapshot == null || !_overlaySnapshot.Ready)
+            {
+                return ModText.T("GameNotReady");
+            }
+
+            var lines = new List<string>();
+            if (!surgeryOnly)
+            {
+                lines.Add(ModText.T("Patients") + _overlaySnapshot.Patients);
+                lines.Add(ModText.T("HighRisk") + _overlaySnapshot.HighRiskPatients);
+                lines.Add(ModText.T("PlannedMeds") + _overlaySnapshot.PatientsWithPlannedMedication);
+                lines.Add(ModText.T("IdleLabQueue") + _overlaySnapshot.IdleLabProcedures);
+                lines.Add(ModText.T("DepartmentsBusy") + _overlaySnapshot.BusyDepartments + "/" + _overlaySnapshot.Departments);
+                lines.Add(ModText.T("FreeDoctors") + _overlaySnapshot.FreeDoctors + "/" + _overlaySnapshot.Doctors);
+                lines.Add(ModText.T("FreeNurses") + _overlaySnapshot.FreeNurses + "/" + _overlaySnapshot.Nurses);
+                lines.Add(ModText.T("FreeLabs") + _overlaySnapshot.FreeLabSpecialists + "/" + _overlaySnapshot.LabSpecialists);
+                lines.Add(ModText.T("FreeJanitors") + _overlaySnapshot.FreeJanitors + "/" + _overlaySnapshot.Janitors);
+                lines.Add(ModText.T("OrCleanupRooms") + ProductivityTweaksService.HighPriorityCleanupRoomCount);
+                if (!string.IsNullOrEmpty(_overlaySnapshot.JanitorDiagnostics))
+                {
+                    lines.Add(ModText.T("JanitorDiagnostics"));
+                    lines.Add(_overlaySnapshot.JanitorDiagnostics);
+                }
+                lines.Add(ModText.T("NurseCleanupJobs") + ProductivityTweaksService.NurseCleanupJobCount);
+                lines.Add(ModText.F("RadiologyQueueLine",
+                    _overlaySnapshot.RadiologyPlannedExaminations,
+                    _overlaySnapshot.RadiologyCtExaminations,
+                    _overlaySnapshot.RadiologyMriExaminations,
+                    _overlaySnapshot.RadiologyXrayExaminations,
+                    _overlaySnapshot.RadiologyUsgExaminations,
+                    _overlaySnapshot.RadiologyAngioExaminations,
+                    _overlaySnapshot.CardiologyExaminations,
+                    _overlaySnapshot.NeurologyExaminations,
+                    _overlaySnapshot.HematologyExaminations,
+                    _overlaySnapshot.MicrobiologyExaminations,
+                    _overlaySnapshot.HistologyExaminations,
+                    _overlaySnapshot.OfficeExaminations,
+                    _overlaySnapshot.OtherExaminations));
+                lines.Add(ModText.F("IntakeLine",
+                    _overlaySnapshot.IntakeClinicPatients,
+                    _overlaySnapshot.IntakeClinicCapacity,
+                    _overlaySnapshot.IntakeAmbulancePatients,
+                    _overlaySnapshot.IntakeAmbulanceCapacity,
+                    _overlaySnapshot.IntakeOutpatientDoctorCapacity));
+                lines.Add(ModText.F("IntakeDynamicLine",
+                    _overlaySnapshot.IntakeDynamicDepartmentChoices,
+                    _overlaySnapshot.IntakeDirectDepartmentReferrals));
+            }
+
+            lines.Add(ModText.F("SurgeryLine", _overlaySnapshot.PlannedSurgeries, _overlaySnapshot.CriticalSurgeryPatients, _overlaySnapshot.WaitingSurgeryDepartments));
+            lines.Add(ModText.F("SurgeryBlockersLine", _overlaySnapshot.SurgeryWaitingForRoom, _overlaySnapshot.SurgeryWaitingForStaff, _overlaySnapshot.SurgeryWaitingForTransport, _overlaySnapshot.SurgeryWaitingForCriticalPatients));
+            lines.Add(ModText.F("TransportWaitsLine", _overlaySnapshot.WaitingForExamTransport, _overlaySnapshot.WaitingForTreatmentTransport, _overlaySnapshot.OutsideRoomChainedPatients));
+            if (surgeryOnly)
+            {
+                lines.Add(ModText.T("SurgeryTooltipNote"));
+            }
+
+            if (surgeryOnly && !string.IsNullOrEmpty(_overlaySnapshot.SurgeryReadinessDetails))
+            {
+                lines.Add(ModText.T("SurgeryReadiness"));
+                lines.Add(_overlaySnapshot.SurgeryReadinessDetails);
+            }
+
+            if (!string.IsNullOrEmpty(_overlaySnapshot.Warning))
+            {
+                lines.Add(ModText.T("OverlayWarning") + _overlaySnapshot.Warning);
+            }
+
+            return string.Join("\n", lines.ToArray());
+        }
+
+        private string BuildPerformanceText()
+        {
+            var lines = new List<string>();
             if (!_config.EnablePerformanceProfiler.Value)
             {
-                GUILayout.Label(ModText.T("PerformanceProfilerDisabled"));
+                lines.Add(ModText.T("PerformanceProfilerDisabled"));
             }
             else
             {
                 var samples = PerformanceProfiler.GetTopSamples(_config.ProfilerTopN.Value);
                 if (samples.Count == 0)
                 {
-                    GUILayout.Label(ModText.T("PerformanceProfilerNoSamples"));
+                    lines.Add(ModText.T("PerformanceProfilerNoSamples"));
                 }
-
-                foreach (var sample in samples)
+                else
                 {
-                    GUILayout.Label(PerformanceProfiler.FormatSample(sample));
+                    foreach (var sample in samples)
+                    {
+                        lines.Add(PerformanceProfiler.FormatSample(sample));
+                    }
                 }
             }
 
             var scheduling = SchedulingEngineService.Snapshot;
             if (scheduling != null)
             {
-                GUILayout.Space(8f);
-                GUILayout.Label(ModText.T("SchedulingEngine"));
+                lines.Add(string.Empty);
+                lines.Add(ModText.T("SchedulingEngine"));
                 if (!scheduling.Ready)
                 {
-                    GUILayout.Label(ModText.T("SchedulingEngineNotReady") + scheduling.Warning);
+                    lines.Add(ModText.T("SchedulingEngineNotReady") + scheduling.Warning);
                 }
                 else
                 {
-                    GUILayout.Label(ModText.F("SchedulingEngineLine",
+                    lines.Add(ModText.F("SchedulingEngineLine",
                         scheduling.Departments,
                         scheduling.TotalTasks,
                         scheduling.CriticalTasks,
@@ -434,13 +887,13 @@ namespace ProjectHospital.AutoLabBalancer
                         scheduling.FreeStaff,
                         scheduling.Staff,
                         scheduling.RebuildMs.ToString("0.00")));
-                    GUILayout.Label(ModText.F("SchedulingEngineTaskObjectsLine", scheduling.TaskObjects));
-                    GUILayout.Label(ModText.T("SchedulingEngineTopBoard") + scheduling.TopBoardSummary);
-                    GUILayout.Label(ModText.T("SchedulingEngineTopDispatch") + scheduling.TopDispatchSummary);
+                    lines.Add(ModText.F("SchedulingEngineTaskObjectsLine", scheduling.TaskObjects));
+                    lines.Add(ModText.T("SchedulingEngineTopBoard") + scheduling.TopBoardSummary);
+                    lines.Add(ModText.T("SchedulingEngineTopDispatch") + scheduling.TopDispatchSummary);
                 }
 
                 var counters = SchedulingEngineService.GetCounters();
-                GUILayout.Label(ModText.F("SchedulingEngineCountersLine",
+                lines.Add(ModText.F("SchedulingEngineCountersLine",
                     counters.Rebuilds,
                     counters.AverageRebuildMs.ToString("0.00"),
                     counters.MaxRebuildMs.ToString("0.00"),
@@ -453,35 +906,35 @@ namespace ProjectHospital.AutoLabBalancer
                     counters.OutpatientGatingChecks,
                     counters.DoctorSearchGatingSkips,
                     counters.DoctorSearchGatingChecks));
-                GUILayout.Label(ModText.F("SchedulingDispatcherCountersLine", counters.DispatcherRecommendations));
-                GUILayout.Label(ModText.F("SchedulingDispatcherApplyCountersLine",
+                lines.Add(ModText.F("SchedulingDispatcherCountersLine", counters.DispatcherRecommendations));
+                lines.Add(ModText.F("SchedulingDispatcherApplyCountersLine",
                     counters.DispatcherApplyAllows,
                     counters.DispatcherApplySkips,
                     counters.DispatcherApplyChecks));
-                GUILayout.Label(ModText.F("ReservationBrokerCountersLine",
+                lines.Add(ModText.F("ReservationBrokerCountersLine",
                     counters.ReservationBrokerHits,
                     counters.ReservationBrokerMisses,
                     counters.ReservationBrokerStores));
-                GUILayout.Label(ModText.F("ReservationBrokerReasonCountersLine",
+                lines.Add(ModText.F("ReservationBrokerReasonCountersLine",
                     counters.ReservationBrokerAvailableDrops,
                     counters.ReservationBrokerStaffUnavailableStores,
                     counters.ReservationBrokerRoomUnavailableStores,
                     counters.ReservationBrokerEquipmentUnavailableStores,
                     counters.ReservationBrokerOtherFailureStores));
-                GUILayout.Label(ModText.F("TaskBoardCountersLine",
+                lines.Add(ModText.F("TaskBoardCountersLine",
                     counters.TaskBoardValidationFails,
                     counters.TaskBoardClaimSkips));
             }
 
             var perfCounters = PerformanceOptimizationService.GetCounters();
-            GUILayout.Label(ModText.F("PerformanceOptimizationCountersLine",
+            lines.Add(ModText.F("PerformanceOptimizationCountersLine",
                 perfCounters.ObjectSearchHits,
                 perfCounters.ObjectSearchMisses,
                 perfCounters.ObjectSearchInvalidHits,
                 perfCounters.StaffSearchHits,
                 perfCounters.StaffSearchMisses,
                 perfCounters.StaffSearchInvalidHits));
-            GUILayout.Label(ModText.F("RouteRequestCountersLine",
+            lines.Add(ModText.F("RouteRequestCountersLine",
                 perfCounters.RouteRepeatedRequests,
                 perfCounters.RouteRequests,
                 perfCounters.ReflectionFallbacks,
@@ -490,15 +943,15 @@ namespace ProjectHospital.AutoLabBalancer
             var externalTransfer = ExternalTransferQueueBrokerService.Snapshot;
             if (externalTransfer != null)
             {
-                GUILayout.Space(8f);
-                GUILayout.Label(ModText.T("ExternalTransferQueueBroker"));
+                lines.Add(string.Empty);
+                lines.Add(ModText.T("ExternalTransferQueueBroker"));
                 if (!externalTransfer.Ready)
                 {
-                    GUILayout.Label(ModText.T("ExternalTransferQueueBrokerNotReady") + externalTransfer.Warning);
+                    lines.Add(ModText.T("ExternalTransferQueueBrokerNotReady") + externalTransfer.Warning);
                 }
                 else
                 {
-                    GUILayout.Label(ModText.F("ExternalTransferQueueBrokerLine",
+                    lines.Add(ModText.F("ExternalTransferQueueBrokerLine",
                         externalTransfer.SentAwayPatients,
                         externalTransfer.WaitingTransfers,
                         externalTransfer.ActiveTransfers,
@@ -510,24 +963,378 @@ namespace ProjectHospital.AutoLabBalancer
                 }
             }
 
-            GUILayout.Space(8f);
-            GUILayout.Label(FramePacingService.Summary);
+            lines.Add(string.Empty);
+            lines.Add(FramePacingService.Summary);
+            return string.Join("\n", lines.ToArray());
+        }
+    }
 
-            if (GUILayout.Button(ModText.T("PerformanceProfilerReset")))
+    internal sealed class SaveScopedSettings
+    {
+        private readonly ManualLogSource _logger;
+        private readonly Dictionary<string, bool> _globalDefaults = new Dictionary<string, bool>();
+        private readonly Dictionary<string, string> _overrides = new Dictionary<string, string>();
+        private string _scopeKey;
+        private string _scopeDisplayName;
+        private string _scopeIdentifier;
+        private string _scopeIdentifierSource;
+        private string _scopePath;
+
+        public SaveScopedSettings(ManualLogSource logger)
+        {
+            _logger = logger;
+        }
+
+        public bool HasActiveScope
+        {
+            get { return !string.IsNullOrEmpty(_scopeKey); }
+        }
+
+        public string ScopeDisplayName
+        {
+            get { return string.IsNullOrEmpty(_scopeDisplayName) ? "unknown" : _scopeDisplayName; }
+        }
+
+        public string ScopeIdentifier
+        {
+            get { return string.IsNullOrEmpty(_scopeIdentifier) ? "unknown" : _scopeIdentifier; }
+        }
+
+        public void CaptureGlobalDefaults(AutoLabBalancerConfig config)
+        {
+            foreach (var entry in GetBoolEntries(config))
             {
-                PerformanceProfiler.Reset();
-                SchedulingEngineService.ResetCounters();
-                PerformanceOptimizationService.ResetCounters();
+                _globalDefaults[GetEntryKey(entry)] = entry.Value;
             }
         }
 
-        private void DrawToggle(ConfigEntry<bool> entry, string label)
+        public void RefreshScope(AutoLabBalancerConfig config)
         {
-            var value = GUILayout.Toggle(entry.Value, label);
-            if (value != entry.Value)
+            var identity = GetCurrentScopeIdentity();
+            var nextKey = identity == null || string.IsNullOrEmpty(identity.Identifier) ? null : MakeScopeKey(identity.Identifier);
+            if (nextKey == _scopeKey)
             {
+                return;
+            }
+
+            _scopeKey = nextKey;
+            _scopeDisplayName = identity == null ? null : identity.DisplayName;
+            _scopeIdentifier = identity == null ? null : identity.Identifier;
+            _scopeIdentifierSource = identity == null ? null : identity.Source;
+            _overrides.Clear();
+            _scopePath = null;
+
+            if (!string.IsNullOrEmpty(_scopeKey))
+            {
+                var dir = System.IO.Path.Combine(Paths.ConfigPath, "AutoLabBalancer.SaveSettings");
+                _scopePath = System.IO.Path.Combine(dir, _scopeKey + ".cfg");
+                TryMigrateLegacyHospitalNameScope(dir, identity);
+                LoadOverrides();
+            }
+
+            Apply(config);
+        }
+
+        public void SetOverride(ConfigEntry<bool> entry, bool value)
+        {
+            if (string.IsNullOrEmpty(_scopePath))
+            {
+                return;
+            }
+
+            _overrides[GetEntryKey(entry)] = value.ToString();
+            SaveOverrides();
+        }
+
+        public int GetInt(ConfigEntry<int> entry, int saveDefault)
+        {
+            if (!HasActiveScope || entry == null)
+            {
+                return entry == null ? saveDefault : entry.Value;
+            }
+
+            var value = GetRawValue(GetEntryKey(entry));
+            int parsed;
+            return int.TryParse(value, out parsed) ? parsed : saveDefault;
+        }
+
+        public bool GetBool(ConfigEntry<bool> entry, bool saveDefault)
+        {
+            if (!HasActiveScope || entry == null)
+            {
+                return entry != null && entry.Value;
+            }
+
+            var value = GetRawValue(GetEntryKey(entry));
+            bool parsed;
+            return bool.TryParse(value, out parsed) ? parsed : saveDefault;
+        }
+
+        public void SetInt(ConfigEntry<int> entry, int value)
+        {
+            SetRawValue(entry, value.ToString());
+        }
+
+        public void SetBool(ConfigEntry<bool> entry, bool value)
+        {
+            SetRawValue(entry, value.ToString());
+        }
+
+        private string GetRawValue(string key)
+        {
+            string value;
+            return key != null && _overrides.TryGetValue(key, out value) ? value : null;
+        }
+
+        private void SetRawValue(ConfigEntryBase entry, string value)
+        {
+            if (entry == null || string.IsNullOrEmpty(_scopePath))
+            {
+                return;
+            }
+
+            _overrides[GetEntryKey(entry)] = value;
+            SaveOverrides();
+        }
+
+        private void Apply(AutoLabBalancerConfig config)
+        {
+            foreach (var entry in GetBoolEntries(config))
+            {
+                var key = GetEntryKey(entry);
+                bool value;
+                string raw;
+                if (_overrides.TryGetValue(key, out raw) && bool.TryParse(raw, out value))
+                {
+                    entry.Value = value;
+                    continue;
+                }
+
+                if (!_globalDefaults.TryGetValue(key, out value))
+                {
+                    continue;
+                }
+
                 entry.Value = value;
-                Config.Save();
+            }
+        }
+
+        private void LoadOverrides()
+        {
+            if (string.IsNullOrEmpty(_scopePath) || !System.IO.File.Exists(_scopePath))
+            {
+                return;
+            }
+
+            try
+            {
+                foreach (var line in System.IO.File.ReadAllLines(_scopePath))
+                {
+                    var trimmed = line.Trim();
+                    if (trimmed.Length == 0 || trimmed.StartsWith("#"))
+                    {
+                        continue;
+                    }
+
+                    var split = trimmed.IndexOf('=');
+                    if (split <= 0)
+                    {
+                        continue;
+                    }
+
+                    _overrides[trimmed.Substring(0, split).Trim()] = trimmed.Substring(split + 1).Trim();
+                }
+            }
+            catch (Exception ex)
+            {
+                if (_logger != null)
+                {
+                    _logger.LogWarning("Failed to load save-scoped settings: " + ex.Message);
+                }
+            }
+        }
+
+        private void SaveOverrides()
+        {
+            try
+            {
+                var dir = System.IO.Path.GetDirectoryName(_scopePath);
+                if (!System.IO.Directory.Exists(dir))
+                {
+                    System.IO.Directory.CreateDirectory(dir);
+                }
+
+                var lines = new List<string>();
+                lines.Add("# AutoLabBalancer save-scoped settings");
+                lines.Add("# Hospital=" + ScopeDisplayName);
+                lines.Add("# Identifier=" + ScopeIdentifier);
+                lines.Add("# IdentifierSource=" + (string.IsNullOrEmpty(_scopeIdentifierSource) ? "unknown" : _scopeIdentifierSource));
+                foreach (var pair in _overrides)
+                {
+                    lines.Add(pair.Key + "=" + pair.Value);
+                }
+
+                System.IO.File.WriteAllLines(_scopePath, lines.ToArray());
+            }
+            catch (Exception ex)
+            {
+                if (_logger != null)
+                {
+                    _logger.LogWarning("Failed to save save-scoped settings: " + ex.Message);
+                }
+            }
+        }
+
+        private static IEnumerable<ConfigEntry<bool>> GetBoolEntries(AutoLabBalancerConfig config)
+        {
+            if (config == null)
+            {
+                yield break;
+            }
+
+            var properties = typeof(AutoLabBalancerConfig).GetProperties(BindingFlags.Public | BindingFlags.Instance);
+            for (var i = 0; i < properties.Length; i++)
+            {
+                if (properties[i].PropertyType != typeof(ConfigEntry<bool>))
+                {
+                    continue;
+                }
+
+                var entry = properties[i].GetValue(config, null) as ConfigEntry<bool>;
+                if (entry != null)
+                {
+                    yield return entry;
+                }
+            }
+        }
+
+        private static string GetEntryKey(ConfigEntryBase entry)
+        {
+            return entry.Definition.Section + "." + entry.Definition.Key;
+        }
+
+        private static SaveScopeIdentity GetCurrentScopeIdentity()
+        {
+            var hospitalName = GetCurrentHospitalName();
+            var saveName = GetCurrentSaveName();
+            if (!string.IsNullOrEmpty(saveName))
+            {
+                var display = string.IsNullOrEmpty(hospitalName) ? saveName : hospitalName + " [" + saveName + "]";
+                return new SaveScopeIdentity("save:" + saveName, display, "PlayerProfile.m_currentSave");
+            }
+
+            if (!string.IsNullOrEmpty(hospitalName))
+            {
+                return new SaveScopeIdentity("hospital-name:" + hospitalName, hospitalName, "HospitalPersistentData.m_hospitalName");
+            }
+
+            return null;
+        }
+
+        private void TryMigrateLegacyHospitalNameScope(string dir, SaveScopeIdentity identity)
+        {
+            if (identity == null
+                || string.IsNullOrEmpty(identity.HospitalName)
+                || string.IsNullOrEmpty(_scopePath)
+                || System.IO.File.Exists(_scopePath))
+            {
+                return;
+            }
+
+            var legacyPath = System.IO.Path.Combine(dir, MakeScopeKey(identity.HospitalName) + ".cfg");
+            if (!System.IO.File.Exists(legacyPath))
+            {
+                return;
+            }
+
+            try
+            {
+                System.IO.File.Copy(legacyPath, _scopePath, false);
+            }
+            catch (Exception ex)
+            {
+                if (_logger != null)
+                {
+                    _logger.LogWarning("Failed to migrate legacy save-scoped settings: " + ex.Message);
+                }
+            }
+        }
+
+        private static string GetCurrentHospitalName()
+        {
+            var hospital = Lopital.Hospital.Instance;
+            if (hospital == null)
+            {
+                return null;
+            }
+
+            var state = ReflectionHelpers.GetField(hospital, "m_state");
+            var name = ReflectionHelpers.GetField(state, "m_hospitalName") as string;
+            if (!string.IsNullOrEmpty(name))
+            {
+                return name;
+            }
+
+            return string.IsNullOrEmpty(hospital.Name) ? null : hospital.Name;
+        }
+
+        private static string GetCurrentSaveName()
+        {
+            var type = AccessTools.TypeByName("PlayerProfile");
+            if (type == null)
+            {
+                return null;
+            }
+
+            object profile = null;
+            var property = type.GetProperty("Instance", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            if (property != null)
+            {
+                profile = property.GetValue(null, null);
+            }
+
+            if (profile == null)
+            {
+                var field = type.GetField("sm_instance", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                profile = field == null ? null : field.GetValue(null);
+            }
+
+            var currentSave = ReflectionHelpers.GetField(profile, "m_currentSave") as string;
+            return string.IsNullOrEmpty(currentSave) ? null : currentSave.Trim();
+        }
+
+        private static string MakeScopeKey(string displayName)
+        {
+            var bytes = System.Text.Encoding.UTF8.GetBytes(displayName);
+            using (var sha1 = System.Security.Cryptography.SHA1.Create())
+            {
+                var hash = sha1.ComputeHash(bytes);
+                var builder = new System.Text.StringBuilder("hospital-");
+                for (var i = 0; i < hash.Length; i++)
+                {
+                    builder.Append(hash[i].ToString("x2"));
+                }
+
+                return builder.ToString();
+            }
+        }
+
+        private sealed class SaveScopeIdentity
+        {
+            public readonly string Identifier;
+            public readonly string DisplayName;
+            public readonly string Source;
+            public readonly string HospitalName;
+
+            public SaveScopeIdentity(string identifier, string displayName, string source)
+            {
+                Identifier = identifier;
+                DisplayName = displayName;
+                Source = source;
+                var marker = "hospital-name:";
+                HospitalName = identifier != null && identifier.StartsWith(marker, StringComparison.Ordinal)
+                    ? identifier.Substring(marker.Length)
+                    : GetCurrentHospitalName();
             }
         }
     }
@@ -591,6 +1398,17 @@ namespace ProjectHospital.AutoLabBalancer
         public ConfigEntry<int> AmbulancePatientsPerDoctorPerShift { get; private set; }
         public ConfigEntry<int> ReserveEmergencyCapacityPercent { get; private set; }
         public ConfigEntry<bool> IntakeDebugLog { get; private set; }
+        public ConfigEntry<bool> EnableHospitalUpgrades { get; private set; }
+        public ConfigEntry<bool> EnableMedicalCaseRewrite { get; private set; }
+        public ConfigEntry<int> MaxDiagnosesPerPatient { get; private set; }
+        public ConfigEntry<int> MultiDiagnosisChance { get; private set; }
+        public ConfigEntry<bool> EnableHopelessCases { get; private set; }
+        public ConfigEntry<int> HopelessCaseChance { get; private set; }
+        public ConfigEntry<int> HopelessMinDiagnoses { get; private set; }
+        public ConfigEntry<int> HopelessMaxDiagnoses { get; private set; }
+        public ConfigEntry<bool> HopelessRequiresHospitalUpgrades { get; private set; }
+        public ConfigEntry<bool> CaseRewriteDebugLog { get; private set; }
+        public ConfigEntry<bool> EnableDeepTraceLog { get; private set; }
         public ConfigEntry<bool> DevCheapUpgrades { get; private set; }
         public ConfigEntry<bool> EnableAbsurdUpgrades { get; private set; }
         public ConfigEntry<bool> EnablePerformanceProfiler { get; private set; }
@@ -688,6 +1506,17 @@ namespace ProjectHospital.AutoLabBalancer
                 AmbulancePatientsPerDoctorPerShift = config.Bind("IntakeControl", "AmbulancePatientsPerDoctorPerShift", 3, "Dynamic ambulance/immobile patient capacity per outpatient doctor."),
                 ReserveEmergencyCapacityPercent = config.Bind("IntakeControl", "ReserveEmergencyCapacityPercent", 15, "Percent of dynamic capacity reserved for emergency headroom."),
                 IntakeDebugLog = config.Bind("IntakeControl", "IntakeDebugLog", false, "Write detailed intake-control decisions."),
+                EnableHospitalUpgrades = config.Bind("HospitalUpgrades", "EnableHospitalUpgrades", true, "Master switch for hospital upgrade effects and purchases. Existing purchased levels are kept but ignored while disabled."),
+                EnableMedicalCaseRewrite = config.Bind("MedicalCaseRewrite", "EnableMedicalCaseRewrite", false, "Experimental patient-case rewrite. Disabled by default while the gameplay loop is being hardened."),
+                MaxDiagnosesPerPatient = config.Bind("MedicalCaseRewrite", "MaxDiagnosesPerPatient", 4, "Maximum diagnoses generated for a normal patient case."),
+                MultiDiagnosisChance = config.Bind("MedicalCaseRewrite", "MultiDiagnosisChance", 35, "Percent chance that a generated patient receives additional diagnoses."),
+                EnableHopelessCases = config.Bind("MedicalCaseRewrite", "EnableHopelessCases", false, "Allow rare very complex patient cases."),
+                HopelessCaseChance = config.Bind("MedicalCaseRewrite", "HopelessCaseChance", 2, "Percent chance for a hopeless case when medical case rewrite is enabled."),
+                HopelessMinDiagnoses = config.Bind("MedicalCaseRewrite", "HopelessMinDiagnoses", 4, "Minimum diagnoses for hopeless cases."),
+                HopelessMaxDiagnoses = config.Bind("MedicalCaseRewrite", "HopelessMaxDiagnoses", 9, "Maximum diagnoses for hopeless cases."),
+                HopelessRequiresHospitalUpgrades = config.Bind("MedicalCaseRewrite", "HopelessRequiresHospitalUpgrades", true, "Only generate hopeless cases after enough hospital upgrades are purchased."),
+                CaseRewriteDebugLog = config.Bind("MedicalCaseRewrite", "CaseRewriteDebugLog", false, "Write detailed medical case rewrite diagnostics."),
+                EnableDeepTraceLog = config.Bind("Developer", "EnableDeepTraceLog", false, "Write deep per-entity trace logs to a separate file for debugging patient/doctor/lab flows."),
                 DevCheapUpgrades = config.Bind("Developer", "DevCheapUpgrades", false, "Developer helper: reduce hospital upgrade prices so the most expensive next level costs 100000."),
                 EnableAbsurdUpgrades = config.Bind("Developer", "EnableAbsurdUpgrades", false, "Enable absurd hospital upgrade tier: expensive, intentionally overpowered final effects."),
                 EnablePerformanceProfiler = config.Bind("Performance", "EnablePerformanceProfiler", false, "Enable internal performance profiler. Default off because Harmony timing has overhead."),
@@ -729,6 +1558,7 @@ namespace ProjectHospital.AutoLabBalancer
     {
         public static AutoLabBalancerConfig Config;
         public static ManualLogSource Logger;
+        public static SaveScopedSettings SaveSettings;
 
         public static bool BlockNegativePerks
         {

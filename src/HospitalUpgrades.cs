@@ -66,14 +66,35 @@ namespace ProjectHospital.AutoLabBalancer
             }
         }
 
+        public static bool IsEnabled
+        {
+            get
+            {
+                return RuntimeSettings.Config != null
+                    && RuntimeSettings.Config.Enabled.Value
+                    && RuntimeSettings.Config.EnableHospitalUpgrades.Value;
+            }
+        }
+
         public static int GetLevel(HospitalUpgradeDefinition definition)
         {
+            if (!IsEnabled)
+            {
+                return 0;
+            }
+
             var entry = GetEntry(definition);
-            return Mathf.Clamp(entry.Value, 0, MaxLevel);
+            var level = RuntimeSettings.SaveSettings == null ? entry.Value : RuntimeSettings.SaveSettings.GetInt(entry, 0);
+            return Mathf.Clamp(level, 0, MaxLevel);
         }
 
         public static int GetNextCost(HospitalUpgradeDefinition definition)
         {
+            if (!IsEnabled)
+            {
+                return 0;
+            }
+
             var level = GetLevel(definition);
             if (level < MaxLevel)
             {
@@ -85,7 +106,14 @@ namespace ProjectHospital.AutoLabBalancer
 
         public static bool HasAbsurdLevel(HospitalUpgradeDefinition definition)
         {
-            return CanUseAbsurdTier() && GetAbsurdEntry(definition).Value;
+            if (!IsEnabled)
+            {
+                return false;
+            }
+
+            var entry = GetAbsurdEntry(definition);
+            var value = RuntimeSettings.SaveSettings == null ? entry.Value : RuntimeSettings.SaveSettings.GetBool(entry, false);
+            return CanUseAbsurdTier() && value;
         }
 
         public static float GetForwardMultiplier(string id)
@@ -524,6 +552,12 @@ namespace ProjectHospital.AutoLabBalancer
         public static bool TryBuy(HospitalUpgradeDefinition definition, out string message)
         {
             message = null;
+            if (!IsEnabled)
+            {
+                message = ModText.T("HospitalUpgradesDisabled");
+                return false;
+            }
+
             var level = GetLevel(definition);
             var buyingAbsurd = level >= MaxLevel;
             if (buyingAbsurd && (!CanUseAbsurdTier() || HasAbsurdLevel(definition)))
@@ -542,15 +576,27 @@ namespace ProjectHospital.AutoLabBalancer
             SetBalance(balance - cost);
             if (buyingAbsurd)
             {
-                GetAbsurdEntry(definition).Value = true;
+                var entry = GetAbsurdEntry(definition);
+                entry.Value = true;
+                if (RuntimeSettings.SaveSettings != null && RuntimeSettings.SaveSettings.HasActiveScope)
+                {
+                    RuntimeSettings.SaveSettings.SetBool(entry, true);
+                }
             }
             else
             {
                 var entry = GetEntry(definition);
                 entry.Value = level + 1;
+                if (RuntimeSettings.SaveSettings != null && RuntimeSettings.SaveSettings.HasActiveScope)
+                {
+                    RuntimeSettings.SaveSettings.SetInt(entry, level + 1);
+                }
             }
 
-            RuntimeSettings.Config.SourceConfig.Save();
+            if (RuntimeSettings.SaveSettings == null || !RuntimeSettings.SaveSettings.HasActiveScope)
+            {
+                RuntimeSettings.Config.SourceConfig.Save();
+            }
             return true;
         }
 
@@ -582,8 +628,7 @@ namespace ProjectHospital.AutoLabBalancer
 
         private static bool CanUseAbsurdTier()
         {
-            return RuntimeSettings.Config != null
-                && RuntimeSettings.Config.Enabled.Value
+            return IsEnabled
                 && RuntimeSettings.Config.EnableAbsurdUpgrades.Value;
         }
 

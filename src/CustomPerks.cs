@@ -44,16 +44,16 @@ namespace ProjectHospital.AutoLabBalancer
 
         private static readonly CustomPerkDefinition[] Definitions =
         {
-            new CustomPerkDefinition(StaffDiagnosticAcuity, "Точный диагност", "После интервью или обследования иногда раскрывает дополнительный скрытый симптом.", true, false, PerkType.POSITIVE, 342, "diag"),
-            new CustomPerkDefinition(StaffEmergencyFocus, "Экстренный приоритет", "В критических случаях откладывает личные потребности и быстрее работает с пациентом.", true, false, PerkType.POSITIVE, 346, "emergency"),
-            new CustomPerkDefinition(StaffSurgicalHand, "Хирургическая рука", "Снижает шанс осложнений после операций.", true, false, PerkType.POSITIVE, 343, "surgery"),
-            new CustomPerkDefinition(StaffFastRounds, "Быстрый обход", "Быстрее выполняет процедуры и обходы у госпитализированных пациентов.", true, false, PerkType.POSITIVE, 349, "rounds"),
-            new CustomPerkDefinition(StaffOrganizer, "Организатор", "Чуть быстрее выполняет задачи отдела и реже простаивает.", true, false, PerkType.POSITIVE, 326, "workstyle"),
-            new CustomPerkDefinition(StaffLeanDiagnostics, "Без лишних анализов", "Сильнее склоняется к постановке диагноза, когда картина почти ясна.", true, false, PerkType.POSITIVE, 344, "diagstyle"),
-            new CustomPerkDefinition(StaffTransportAssistant, "Транспортный ассистент", "Быстрее движется при перевозке пациентов.", true, false, PerkType.POSITIVE, 349, "transport"),
-            new CustomPerkDefinition(StaffSanitaryPerfectionist, "Санитарный перфекционист", "Иногда очищает соседние грязные клетки после уборки.", true, false, PerkType.POSITIVE, 345, "clean"),
-            new CustomPerkDefinition(StaffStressProof, "Стрессоустойчивый", "Игнорирует часть негативного настроения от сложных пациентов.", true, false, PerkType.POSITIVE, 329, "stress"),
-            new CustomPerkDefinition(StaffCheapSpecialist, "Дешевый специалист", "Получает меньшую зарплату без потери эффективности.", true, false, PerkType.POSITIVE, 518, "salary"),
+            new CustomPerkDefinition(StaffDiagnosticAcuity, "Точный диагност", "После интервью или обследования иногда раскрывает дополнительный скрытый симптом.", true, false, PerkType.POSITIVE, 342, "diag", "doctor"),
+            new CustomPerkDefinition(StaffEmergencyFocus, "Экстренный приоритет", "В критических случаях откладывает личные потребности и быстрее работает с пациентом.", true, false, PerkType.POSITIVE, 346, "emergency", "doctor,nurse,lab"),
+            new CustomPerkDefinition(StaffSurgicalHand, "Хирургическая рука", "Снижает шанс осложнений после операций.", true, false, PerkType.POSITIVE, 343, "surgery", "surgery"),
+            new CustomPerkDefinition(StaffFastRounds, "Быстрый обход", "Быстрее выполняет процедуры и обходы у госпитализированных пациентов.", true, false, PerkType.POSITIVE, 349, "rounds", "doctor,nurse"),
+            new CustomPerkDefinition(StaffOrganizer, "Организатор", "Чуть быстрее выполняет задачи отдела и реже простаивает.", true, false, PerkType.POSITIVE, 326, "workstyle", "employee"),
+            new CustomPerkDefinition(StaffLeanDiagnostics, "Без лишних анализов", "Сильнее склоняется к постановке диагноза, когда картина почти ясна.", true, false, PerkType.POSITIVE, 344, "diagstyle", "doctor"),
+            new CustomPerkDefinition(StaffTransportAssistant, "Транспортный ассистент", "Быстрее движется при перевозке пациентов.", true, false, PerkType.POSITIVE, 349, "transport", "nurse"),
+            new CustomPerkDefinition(StaffSanitaryPerfectionist, "Санитарный перфекционист", "Иногда очищает соседние грязные клетки после уборки.", true, false, PerkType.POSITIVE, 345, "clean", "janitor"),
+            new CustomPerkDefinition(StaffStressProof, "Стрессоустойчивый", "Игнорирует часть негативного настроения от сложных пациентов.", true, false, PerkType.POSITIVE, 329, "stress", "doctor,nurse,lab"),
+            new CustomPerkDefinition(StaffCheapSpecialist, "Дешевый специалист", "Получает меньшую зарплату без потери эффективности.", true, false, PerkType.POSITIVE, 518, "salary", "employee"),
             new CustomPerkDefinition(PatientEducated, "Образованный пациент", "Помогает врачу раскрыть наиболее опасный скрытый симптом.", false, true, PerkType.POSITIVE, 321, "patient-info"),
             new CustomPerkDefinition(PatientPunctual, "Пунктуальный пациент", "Быстрее перемещается по маршруту лечения.", false, true, PerkType.POSITIVE, 349, "patient-speed"),
             new CustomPerkDefinition(PatientPatient, "Терпеливый пациент", "Дольше ждет перед уходом из больницы.", false, true, PerkType.POSITIVE, 329, "patience"),
@@ -69,11 +69,11 @@ namespace ProjectHospital.AutoLabBalancer
             new CustomPerkDefinition(PatientEscortRequired, "Требует сопровождения", "Чаще нуждается в транспортировке и сильнее загружает медсестер.", false, true, PerkType.NEGATIVE, 348, "transport"),
             new CustomPerkDefinition(PatientPanicker, "Паникер", "При ожидании портит настроение себе и персоналу.", false, true, PerkType.NEGATIVE, 517, "mood"),
             new CustomPerkDefinition(PatientQueueBreaker, "Нарушает очередь", "Иногда теряет место в очереди и создает лишнюю работу.", false, true, PerkType.NEGATIVE, 337, "queue"),
-            new CustomPerkDefinition(StaffBurnout, "Выгорающий", "При сильной усталости работает медленнее.", true, false, PerkType.NEGATIVE, 517, "workstyle"),
-            new CustomPerkDefinition(StaffExpensive, "Дорогой специалист", "Требует повышенную зарплату.", true, false, PerkType.NEGATIVE, 333, "salary"),
-            new CustomPerkDefinition(StaffDiagnosticErrors, "Ошибающийся диагност", "Работает как врач с более слабой диагностикой.", true, false, PerkType.NEGATIVE, 328, "diag"),
-            new CustomPerkDefinition(StaffSlowCleaning, "Медленная чистка", "Уборка занимает больше времени.", true, false, PerkType.NEGATIVE, 335, "clean"),
-            new CustomPerkDefinition(StaffChaotic, "Хаотичный сотрудник", "Иногда теряет темп и выполняет задачи медленнее.", true, false, PerkType.NEGATIVE, 340, "emergency")
+            new CustomPerkDefinition(StaffBurnout, "Выгорающий", "При сильной усталости работает медленнее.", true, false, PerkType.NEGATIVE, 517, "workstyle", "employee"),
+            new CustomPerkDefinition(StaffExpensive, "Дорогой специалист", "Требует повышенную зарплату.", true, false, PerkType.NEGATIVE, 333, "salary", "employee"),
+            new CustomPerkDefinition(StaffDiagnosticErrors, "Ошибающийся диагност", "Работает как врач с более слабой диагностикой.", true, false, PerkType.NEGATIVE, 328, "diag", "doctor"),
+            new CustomPerkDefinition(StaffSlowCleaning, "Медленная чистка", "Уборка занимает больше времени.", true, false, PerkType.NEGATIVE, 335, "clean", "janitor"),
+            new CustomPerkDefinition(StaffChaotic, "Хаотичный сотрудник", "Иногда теряет темп и выполняет задачи медленнее.", true, false, PerkType.NEGATIVE, 340, "emergency", "doctor,nurse,lab")
         };
 
         private static readonly Dictionary<string, CustomPerkDefinition> DefinitionById = CreateDefinitionMap();
@@ -126,6 +126,8 @@ namespace ProjectHospital.AutoLabBalancer
                 return;
             }
 
+            RemoveInapplicableCustomPerks(perks, character);
+
             var max = Math.Max(0, RuntimeSettings.Config.MaxPerksPerCharacter.Value);
             if (perks.Count >= max)
             {
@@ -143,7 +145,7 @@ namespace ProjectHospital.AutoLabBalancer
             var candidates = new List<CustomPerkDefinition>();
             foreach (var definition in Definitions)
             {
-                if ((isEmployee && definition.Employee) || (isPatient && definition.Patient))
+                if (((isEmployee && definition.Employee) || (isPatient && definition.Patient)) && IsApplicableToCharacter(definition, character))
                 {
                     candidates.Add(definition);
                 }
@@ -376,7 +378,7 @@ namespace ProjectHospital.AutoLabBalancer
 
         public static void AdjustCollapseTimers(BehaviorPatient patient)
         {
-            if (patient == null || patient.m_state == null || patient.m_state.m_medicalCondition == null)
+            if (patient == null)
             {
                 return;
             }
@@ -393,6 +395,13 @@ namespace ProjectHospital.AutoLabBalancer
             }
 
             if (Math.Abs(multiplier - 1f) < 0.01f)
+            {
+                return;
+            }
+
+            MedicalCaseRewriteService.ApplyCollapseDeadlineMultiplier(patient, multiplier);
+
+            if (patient.m_state == null || patient.m_state.m_medicalCondition == null)
             {
                 return;
             }
@@ -588,6 +597,12 @@ namespace ProjectHospital.AutoLabBalancer
                 return;
             }
 
+            if (MedicalCaseRewriteService.HasCaseRecord(patient)
+                && MedicalCaseRewriteService.RevealHighestPriorityHiddenSymptom(patient))
+            {
+                return;
+            }
+
             Symptom selected = null;
             foreach (var symptom in patient.m_state.m_medicalCondition.m_symptoms)
             {
@@ -604,6 +619,7 @@ namespace ProjectHospital.AutoLabBalancer
 
             if (selected == null)
             {
+                MedicalCaseRewriteService.RevealHighestPriorityHiddenSymptom(patient);
                 return;
             }
 
@@ -616,6 +632,7 @@ namespace ProjectHospital.AutoLabBalancer
             selected.m_hidden = false;
             patient.m_state.m_medicalCondition.UpdatePossibleDiagnoses(entity);
             patient.GetComponent<MoodComponent>().UpdateSymptomDiscomfortModifiers();
+            MedicalCaseRewriteService.SyncKnownVanillaSymptoms(patient);
         }
 
         private static IEnumerable<Entity> GetSceneEmployees(ProcedureScene scene)
@@ -705,6 +722,77 @@ namespace ProjectHospital.AutoLabBalancer
             return false;
         }
 
+        private static bool IsApplicableToCharacter(CustomPerkDefinition definition, object character)
+        {
+            if (definition == null || !definition.Employee)
+            {
+                return true;
+            }
+
+            var target = definition.EmployeeTarget;
+            if (string.IsNullOrEmpty(target) || target == "employee")
+            {
+                return HasComponent(character, "Lopital.EmployeeComponent");
+            }
+
+            var parts = target.Split(',');
+            foreach (var rawPart in parts)
+            {
+                var part = rawPart.Trim();
+                if (part == "doctor" && HasComponent(character, "Lopital.BehaviorDoctor"))
+                {
+                    return true;
+                }
+
+                if (part == "nurse" && HasComponent(character, "Lopital.BehaviorNurse"))
+                {
+                    return true;
+                }
+
+                if (part == "lab" && HasComponent(character, "Lopital.BehaviorLabSpecialist"))
+                {
+                    return true;
+                }
+
+                if (part == "janitor" && HasComponent(character, "Lopital.BehaviorJanitor"))
+                {
+                    return true;
+                }
+
+                if (part == "surgery" && IsSurgeryEmployee(character))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool IsSurgeryEmployee(object character)
+        {
+            var employee = ReflectionHelpers.GetComponentByTypeName(character, "Lopital.EmployeeComponent");
+            return HasEmployeeRole(employee, "EMPL_ROLE_SURGERY")
+                || HasEmployeeRole(employee, "EMPL_ROLE_SURGERY_ANESTHESIOLOGY")
+                || HasEmployeeRole(employee, "EMPL_ROLE_SURGERY_ASSIST")
+                || HasEmployeeRole(employee, "EMPL_ROLE_SURGERY_NURSE");
+        }
+
+        private static bool HasEmployeeRole(object employee, string roleId)
+        {
+            try
+            {
+                var role = Database.Instance == null ? null : Database.Instance.GetEntry<GameDBEmployeeRole>(roleId);
+                var method = employee == null || role == null
+                    ? null
+                    : employee.GetType().GetMethod("HasRole", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, new[] { typeof(GameDBEmployeeRole) }, null);
+                return method != null && Equals(method.Invoke(employee, new object[] { role }), true);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         private static IEnumerable<string> GetVanillaConflictIds(CustomPerkDefinition candidate)
         {
             if (candidate.Id == PatientSecretive)
@@ -769,6 +857,24 @@ namespace ProjectHospital.AutoLabBalancer
                 else
                 {
                     seen.Add(definition.Group);
+                }
+            }
+        }
+
+        private static void RemoveInapplicableCustomPerks(IList perks, object character)
+        {
+            for (var i = perks.Count - 1; i >= 0; i--)
+            {
+                var id = GetPerkId(perks[i]);
+                CustomPerkDefinition definition;
+                if (id == null || !DefinitionById.TryGetValue(id, out definition))
+                {
+                    continue;
+                }
+
+                if (!IsApplicableToCharacter(definition, character))
+                {
+                    perks.RemoveAt(i);
                 }
             }
         }
@@ -893,6 +999,11 @@ namespace ProjectHospital.AutoLabBalancer
         private sealed class CustomPerkDefinition
         {
             public CustomPerkDefinition(string id, string name, string description, bool employee, bool patient, PerkType type, int iconIndex, string group)
+                : this(id, name, description, employee, patient, type, iconIndex, group, employee ? "employee" : null)
+            {
+            }
+
+            public CustomPerkDefinition(string id, string name, string description, bool employee, bool patient, PerkType type, int iconIndex, string group, string employeeTarget)
             {
                 Id = id;
                 Name = name;
@@ -902,6 +1013,7 @@ namespace ProjectHospital.AutoLabBalancer
                 Type = type;
                 IconIndex = iconIndex;
                 Group = group;
+                EmployeeTarget = employeeTarget;
             }
 
             public string Id { get; private set; }
@@ -912,6 +1024,7 @@ namespace ProjectHospital.AutoLabBalancer
             public PerkType Type { get; private set; }
             public int IconIndex { get; private set; }
             public string Group { get; private set; }
+            public string EmployeeTarget { get; private set; }
         }
     }
 

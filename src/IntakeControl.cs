@@ -38,10 +38,12 @@ namespace ProjectHospital.AutoLabBalancer
         private static PatientGenerationContext sm_generationContext;
 
         private static readonly Dictionary<object, int> AssignedMobilePatientsByDepartment = new Dictionary<object, int>(ReferenceEqualityComparer.Instance);
+        private static readonly object[] EmptyInsuranceCompanies = new object[0];
 
         private static int sm_assignedDay = -1;
         private static long sm_dynamicDepartmentChoices;
         private static long sm_directDepartmentReferrals;
+        private static bool sm_insuranceManagerReady;
 
         public static IntakeSnapshot CreateSnapshot()
         {
@@ -101,6 +103,11 @@ namespace ProjectHospital.AutoLabBalancer
         public static void EndPatientGeneration()
         {
             sm_generationContext = null;
+        }
+
+        public static void MarkInsuranceManagerReady()
+        {
+            sm_insuranceManagerReady = true;
         }
 
         public static bool TryChooseDynamicDepartment(PatientMobility mobility, ref Department result)
@@ -186,13 +193,23 @@ namespace ProjectHospital.AutoLabBalancer
                 }
 
                 var behavior = patient.GetComponent<BehaviorPatient>();
-                if (behavior == null || behavior.m_state == null || behavior.m_state.m_medicalCondition == null)
+                if (behavior == null || behavior.m_state == null)
                 {
                     return;
                 }
 
-                var diagnosis = behavior.m_state.m_medicalCondition.m_gameDBMedicalCondition.Entry;
-                var profileDepartmentType = diagnosis == null || diagnosis.DepartmentRef == null ? null : diagnosis.DepartmentRef.Entry;
+                var caseDepartmentId = MedicalCaseRewriteService.GetCaseProfileDepartmentId(behavior);
+                var profileDepartmentType = !string.IsNullOrEmpty(caseDepartmentId)
+                    ? Database.Instance.GetEntry<GameDBDepartment>(caseDepartmentId)
+                    : null;
+                var diagnosis = behavior.m_state.m_medicalCondition == null
+                    || behavior.m_state.m_medicalCondition.m_gameDBMedicalCondition == null
+                    ? null
+                    : behavior.m_state.m_medicalCondition.m_gameDBMedicalCondition.Entry;
+                if (profileDepartmentType == null)
+                {
+                    profileDepartmentType = diagnosis == null || diagnosis.DepartmentRef == null ? null : diagnosis.DepartmentRef.Entry;
+                }
                 var emergency = Database.Instance.GetEntry<GameDBDepartment>("DPT_EMERGENCY");
                 if (profileDepartmentType == null || profileDepartmentType == emergency)
                 {
@@ -210,15 +227,16 @@ namespace ProjectHospital.AutoLabBalancer
                     return;
                 }
 
-                behavior.m_state.m_fromReferral = true;
-                behavior.ResolveComplainedAboutSymptoms();
-                behavior.m_state.m_medicalCondition.UpdatePossibleDiagnoses(patient);
-                behavior.ChangeDepartment(profileDepartment, checkHospitalizationPlace: false);
-                behavior.m_state.m_finishedAtReception = false;
-                behavior.m_state.m_fVisitTime = GetVisitTime(insuranceCompany, index, sm_generationContext.PatientCounter, sm_generationContext.SmoothDistribution, profileDepartment);
                 IncrementAssigned(profileDepartment);
-                sm_directDepartmentReferrals++;
-                Debug("Direct profile referral: " + GetDepartmentId(profileDepartment) + " diagnosis=" + diagnosis.DatabaseID);
+                if (behavior.m_state.m_fromReferral)
+                {
+                    sm_directDepartmentReferrals++;
+                    Debug("Vanilla direct profile referral: " + GetDepartmentId(profileDepartment) + " diagnosis=" + diagnosis.DatabaseID);
+                }
+                else
+                {
+                    Debug("Dynamic profile diagnosis: " + GetDepartmentId(profileDepartment) + " diagnosis=" + diagnosis.DatabaseID);
+                }
             }
             catch (Exception ex)
             {
@@ -373,27 +391,6 @@ namespace ProjectHospital.AutoLabBalancer
             }
 
             return Math.Max(1, RuntimeSettings.Config.OutpatientPatientsPerDoctorPerDay.Value);
-        }
-
-        private static float GetVisitTime(object insuranceCompany, int index, int patientCounter, bool smoothDistribution, Department department)
-        {
-            var method = insuranceCompany == null
-                ? null
-                : AccessTools.Method(insuranceCompany.GetType(), "GetVisitTime", new[] { typeof(float), typeof(float), typeof(bool), typeof(Department) });
-            if (method == null)
-            {
-                return EstimateVisitHour(index, patientCounter, smoothDistribution);
-            }
-
-            try
-            {
-                return Convert.ToSingle(method.Invoke(insuranceCompany, new object[] { (float)index, (float)patientCounter, smoothDistribution, department }));
-            }
-            catch (Exception ex)
-            {
-                Debug("GetVisitTime reflection failed: " + ex.Message);
-                return EstimateVisitHour(index, patientCounter, smoothDistribution);
-            }
         }
 
         private static int GetHourlyWeightPercent(string departmentId, float targetHour)
@@ -572,9 +569,22 @@ namespace ProjectHospital.AutoLabBalancer
 
         private static IEnumerable<object> GetInsuranceCompanies()
         {
-            var manager = Lopital.InsuranceManager.Instance;
-            var state = ReflectionHelpers.GetField(manager, "m_state");
-            return ReflectionHelpers.GetEnumerableField(state, "m_insuranceCompanies");
+            if (!sm_insuranceManagerReady)
+            {
+                return EmptyInsuranceCompanies;
+            }
+
+            try
+            {
+                var manager = Lopital.InsuranceManager.Instance;
+                var state = ReflectionHelpers.GetField(manager, "m_state");
+                return ReflectionHelpers.GetEnumerableField(state, "m_insuranceCompanies");
+            }
+            catch (Exception ex)
+            {
+                Debug("Insurance manager not ready: " + ex.GetType().Name + ": " + ex.Message);
+                return EmptyInsuranceCompanies;
+            }
         }
 
         private static object GetEmployeeDepartment(object employee)
@@ -642,6 +652,7 @@ namespace ProjectHospital.AutoLabBalancer
 
         private static void Prefix(int index, int patientCounter, PatientMobility mobility, bool smoothDistribution)
         {
+            IntakeControlService.MarkInsuranceManagerReady();
             IntakeControlService.BeginPatientGeneration(index, patientCounter, mobility, smoothDistribution);
         }
 

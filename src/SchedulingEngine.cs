@@ -759,6 +759,7 @@ namespace ProjectHospital.AutoLabBalancer
             }
 
             var state = ReflectionHelpers.GetField(patient, "m_state");
+            var countedDoctorWait = false;
             if (state != null)
             {
                 var patientState = ReflectionHelpers.GetField(state, "m_patientState");
@@ -768,7 +769,19 @@ namespace ProjectHospital.AutoLabBalancer
                     board.Score += 60;
                     board.DoctorScore += 60;
                     AddTask(board, patient, "doctor", SchedulingTaskType.WaitingPatient, 60, null);
+                    countedDoctorWait = true;
                 }
+            }
+
+            var behaviorPatient = patient as Lopital.BehaviorPatient;
+            if (!countedDoctorWait
+                && behaviorPatient != null
+                && MedicalCaseRewriteService.HasCurrentDepartmentDoctorWork(behaviorPatient))
+            {
+                board.WaitingPatients++;
+                board.Score += 45;
+                board.DoctorScore += 45;
+                AddTask(board, patient, "doctor", SchedulingTaskType.WaitingPatient, 45, null);
             }
         }
 
@@ -1193,9 +1206,30 @@ namespace ProjectHospital.AutoLabBalancer
                 return false;
             }
 
+            if (GetPropertyOrField(behavior, "CurrentPatient") != null)
+            {
+                return false;
+            }
+
             var entity = ReflectionHelpers.GetField(behavior, "m_entity");
             var employee = ReflectionHelpers.GetComponentByTypeName(entity, "Lopital.EmployeeComponent");
             return employee == null || !ReflectionHelpers.InvokeBool(employee, "IsPerformingAProcedure");
+        }
+
+        private static object GetPropertyOrField(object instance, string name)
+        {
+            if (instance == null)
+            {
+                return null;
+            }
+
+            var property = instance.GetType().GetProperty(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+            if (property != null)
+            {
+                return property.GetValue(instance, null);
+            }
+
+            return ReflectionHelpers.GetField(instance, name);
         }
 
         private static object GetEmployeeDepartment(object entity)

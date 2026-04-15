@@ -561,6 +561,11 @@ namespace ProjectHospital.AutoLabBalancer
                 return false;
             }
 
+            if (!MedicalCaseRewriteService.TryAdvanceBeforeDischarge(patient))
+            {
+                return false;
+            }
+
             var procedure = ReflectionHelpers.GetComponentByTypeName(entity, "Lopital.ProcedureComponent");
             var queue = GetProcedureQueue(procedure);
             var patientState = ReflectionHelpers.GetField(patient, "m_state");
