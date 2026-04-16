@@ -198,18 +198,11 @@ namespace ProjectHospital.AutoLabBalancer
                     return;
                 }
 
-                var caseDepartmentId = MedicalCaseRewriteService.GetCaseProfileDepartmentId(behavior);
-                var profileDepartmentType = !string.IsNullOrEmpty(caseDepartmentId)
-                    ? Database.Instance.GetEntry<GameDBDepartment>(caseDepartmentId)
-                    : null;
                 var diagnosis = behavior.m_state.m_medicalCondition == null
                     || behavior.m_state.m_medicalCondition.m_gameDBMedicalCondition == null
                     ? null
                     : behavior.m_state.m_medicalCondition.m_gameDBMedicalCondition.Entry;
-                if (profileDepartmentType == null)
-                {
-                    profileDepartmentType = diagnosis == null || diagnosis.DepartmentRef == null ? null : diagnosis.DepartmentRef.Entry;
-                }
+                var profileDepartmentType = diagnosis == null || diagnosis.DepartmentRef == null ? null : diagnosis.DepartmentRef.Entry;
                 var emergency = Database.Instance.GetEntry<GameDBDepartment>("DPT_EMERGENCY");
                 if (profileDepartmentType == null || profileDepartmentType == emergency)
                 {

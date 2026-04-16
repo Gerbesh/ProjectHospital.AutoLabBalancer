@@ -39,7 +39,6 @@ namespace ProjectHospital.AutoLabBalancer
                     var entity = ReflectionHelpers.GetField(patient, "m_entity") as GLib.Entity;
                     var hospitalized = IsHospitalized(entity);
                     TryClearBookmark(entity);
-                    MedicalCaseRewriteService.ForgetCaseForDeveloper(patient);
                     InvokeLeave(patient, hospitalized);
                     removed++;
                 }

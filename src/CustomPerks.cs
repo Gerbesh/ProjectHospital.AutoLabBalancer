@@ -399,8 +399,6 @@ namespace ProjectHospital.AutoLabBalancer
                 return;
             }
 
-            MedicalCaseRewriteService.ApplyCollapseDeadlineMultiplier(patient, multiplier);
-
             if (patient.m_state == null || patient.m_state.m_medicalCondition == null)
             {
                 return;
@@ -597,12 +595,6 @@ namespace ProjectHospital.AutoLabBalancer
                 return;
             }
 
-            if (MedicalCaseRewriteService.HasCaseRecord(patient)
-                && MedicalCaseRewriteService.RevealHighestPriorityHiddenSymptom(patient))
-            {
-                return;
-            }
-
             Symptom selected = null;
             foreach (var symptom in patient.m_state.m_medicalCondition.m_symptoms)
             {
@@ -619,7 +611,6 @@ namespace ProjectHospital.AutoLabBalancer
 
             if (selected == null)
             {
-                MedicalCaseRewriteService.RevealHighestPriorityHiddenSymptom(patient);
                 return;
             }
 
@@ -632,7 +623,6 @@ namespace ProjectHospital.AutoLabBalancer
             selected.m_hidden = false;
             patient.m_state.m_medicalCondition.UpdatePossibleDiagnoses(entity);
             patient.GetComponent<MoodComponent>().UpdateSymptomDiscomfortModifiers();
-            MedicalCaseRewriteService.SyncKnownVanillaSymptoms(patient);
         }
 
         private static IEnumerable<Entity> GetSceneEmployees(ProcedureScene scene)

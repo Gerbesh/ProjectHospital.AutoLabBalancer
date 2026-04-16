@@ -130,10 +130,21 @@ It keeps:
 - `ProcessedDiagnosticEventJournal`
 - `DirtyFlags`
 - `TimelineEntries[]`
+  - causal, player-readable journal lines that explain why evidence, routing, and disposition changed
 - `DispositionState`
 
 `PatientCase` owns truth.
 Vanilla owns only execution of the currently materialized slice.
+
+### Problem Track Cap
+
+To keep cases readable, playable, and technically stable:
+
+- one `PatientCase` may keep at most **15** instantiated `CaseProblem` tracks at the same time
+- the cap applies to non-terminal problems plus player-visible unresolved tracks
+- if more candidates qualify, only the strongest / riskiest / most interaction-relevant 15 may stay instantiated
+- weaker candidates should remain deferred until stronger evidence appears or a slot opens
+- a new candidate may replace the weakest unresolved non-confirmed track only if the new one is materially stronger or more dangerous
 
 ### 2. CaseProblem
 
@@ -144,14 +155,17 @@ Each `CaseProblem` keeps:
 - `OwningClusterId`
 - `Status`
 - `Certainty`
+- `SupportLabel`
 - `Symptoms[]`
 - `KnownSymptomIds[]`
 - `RevealedByEventIds[]`
 - `RequiresHospitalization`
 - `BlocksDischarge`
+- `ActiveInteractions[]`
 
 Department ownership is not stored separately on the problem.
 `CaseProblem` points only at `OwningClusterId`, and department identity is derived through the owning cluster.
+`SupportLabel` is player-facing ambiguity language derived from evidence quality, not raw certainty math.
 
 Each symptom entry should keep:
 
@@ -198,6 +212,12 @@ Terminal aggregation rules:
 - `Completed` means all member problems are terminal and at least one ended locally as `Resolved`
 - if terminal outcomes are mixed (`Resolved` + `ReferredOut`), the cluster still aggregates to `Completed`; referral summaries must read per-problem outcomes, not only the cluster flag
 - `Blocked` means unresolved member problems remain, but routing cannot safely materialize more local work until a transfer/resource/return condition clears
+
+Transfer ownership rules:
+
+- when a `Transfer` intent exists, it remains owned by the source cluster until the vanilla department change / handoff is fully committed
+- while a cluster is `WaitingTransfer`, the target cluster may become the next routing candidate, but it must not materialize its clinic work yet
+- `ActiveClusterId` may switch only after the transfer binding commits; before that, the source cluster still owns execution even if the next target department is already known
 
 ### 4. CaseIntent
 
@@ -426,6 +446,54 @@ Confirmation still depends on:
 
 So one CT can expose symptoms from cardio + ortho + neuro, but the game does not instantly mark all three diagnoses as final.
 
+## Comorbidity Interactions
+
+Multi-case depth should come from interactions between problems, not only from raw quantity.
+
+One problem may change the reveal, treatment, routing, or disposition semantics of another:
+
+- one problem may mask or delay interpretation of symptoms from another
+- treatment for problem `A` may worsen, unblock, or reprioritize problem `B`
+- a finding on problem `B` may become meaningful only after problem `A` is stabilized or ruled out
+- discharge/disposition for `B` may stay blocked because `A` creates unresolved downstream risk
+
+Recommended interaction families:
+
+- `MasksEvidence`
+- `AmplifiesRisk`
+- `TreatmentConflict`
+- `UnlocksInterpretation`
+- `BlocksDisposition`
+
+Rules:
+
+- interactions do **not** fabricate evidence out of nothing
+- they only change interpretation, blockers, priority, support labels, treatment safety, or disposition reasons
+- interaction effects must be attached to `ActiveInteractions[]` and surfaced in the case journal
+- interaction logic should prefer explicit readable tags and causal explanations over hidden numeric modifiers
+
+This is the difference between "the patient has many diagnoses" and "the patient has a genuinely interesting case".
+
+## Controlled Ambiguity
+
+The rewrite may keep internal certainty math, but the player should see ambiguity as readable support language, not hidden percentages.
+
+Recommended `SupportLabel` values:
+
+- `WeaklySupported`
+- `ClinicallyPlausible`
+- `StronglySupported`
+- `StrongLabBacked`
+- `ContradictoryEvidence`
+
+Rules:
+
+- support labels update when new evidence, interactions, or contradictory findings arrive
+- `ContradictoryEvidence` should slow confirmation and tell the player that the current explanation is unstable
+- `StrongLabBacked` should feel meaningfully stronger than a weak clinical suspicion
+- UI should show support labels consistently in the ledger, diagnosis surfaces, and journal
+- do not present fake precision unless the design intentionally exposes exact probabilities
+
 ## Status Compatibility Map
 
 The status set is only useful if every module interprets it the same way.
@@ -459,6 +527,7 @@ Use this compatibility mapping:
   - closed
 - `ReferredOut`
   - closed locally, but not treated by this hospital
+  - referral outcome class must remain queryable for journal, scoring, and strategy
 
 The important compatibility consequence is:
 
@@ -469,6 +538,30 @@ Visibility note:
 - problem visibility in the ledger and diagnosis-label visibility are separate policies
 - `Observed` and `Suspected` may already be visible in the ledger while the diagnosis label remains masked
 - UI panels must not infer diagnosis-name visibility directly from `Status`
+
+## Referral As Meaningful Outcome
+
+`ReferredOut` should not mean only "the system gave up".
+
+Referral can be:
+
+- the correct external transfer for an unsupported or dangerous case
+- a capacity tradeoff that protects the hospital but loses revenue, reputation, or a valuable case
+- a player-made triage choice that sacrifices one case to stabilize the whole hospital
+
+Recommended referral outcome classes:
+
+- `NecessaryExternalReferral`
+- `CapacityOverflowReferral`
+- `RiskAvoidanceReferral`
+- `PlayerChoiceReferral`
+
+Rules:
+
+- `ReferOut` decisions should carry an outcome class and a player-facing reason
+- journal and end-of-case summary should explain why referral happened and what tradeoff it represented
+- scoring, economy, and reputation systems may treat different referral classes differently
+- referral should feel like a strategic disposition choice, not only an error handler
 
 ## Separation Of Knowledge, Intent, And Materialized Work
 
@@ -519,8 +612,8 @@ The queue/task orchestrator must become the **only** writer to the vanilla queue
 For rewrite-owned patients it must also become the only authority that may:
 
 - allow or deny final discharge / clinic release / referral disposition
-- allow or deny referral
 - choose active department ownership
+- publish the next transfer / clinic target that adapters must follow
 - decide whether vanilla arbitration should run at all
 
 That means:
@@ -579,6 +672,20 @@ But the result must behave like this:
 
 This is what keeps the design compatible with the current department-local scheduler board.
 
+## Physical Department Bridging
+
+For rewrite-owned patients, distinguish:
+
+- canonical execution owner: `ActiveClusterId -> CareCluster.DepartmentId`
+- physical vanilla placement: `BehaviorPatient.GetDepartment()` / `m_state.m_department`
+
+Bridge rules:
+
+- at stable checkpoints they should match
+- they may diverge temporarily only while a committed transfer / hospitalization transition binding is in flight
+- queue-based helpers may read physical department for room search or department membership, but they must not treat it as future routing truth while the case is in `WaitingTransfer`
+- if a helper still depends on physical department in `v1`, the rewrite must either keep the bridge aligned or explicitly mark that helper as `LegacyAdapter`
+
 ## Shared Orders Redefined
 
 The previous `CaseOrder` idea is split into two layers:
@@ -613,6 +720,11 @@ Required responsibilities:
 - refresh trace / overlay / debug caches that mirror queue state
 - notify legacy adapters so they stop acting on stale queue, referral, or discharge assumptions
 - run once per committed version bump, not once per individual low-level queue mutation
+
+Version-bump rule:
+
+- bump slice version only when vanilla-visible queue shape, execution bindings, or bridged department ownership changed
+- pure evidence/certainty updates that do not change vanilla-visible execution must not churn the slice version
 
 ### Scheduler And Dispatcher
 
@@ -663,6 +775,15 @@ Compatibility rule:
 - generated diagnosis department is only a spawn-time hint, not a long-term owner for rewrite-owned patients
 - once the case rewrite starts, active department truth comes only from cluster routing / materialized slice ownership
 - intake counters such as direct department referrals may stay analytics-only, but they must not later be reused as routing truth
+
+### Bootstrap And Rehydration
+
+When the rewrite first attaches to an already spawned patient or a loaded save:
+
+- import the currently visible vanilla queue/runtime state into the initial `MaterializedSlice` instead of clearing it first
+- if vanilla already has active examination, active treatment, lab procedure, reserved procedure script, or hospitalization transition in progress, create the matching execution binding before recomputing latent intents
+- the first reconciliation after attach must preserve currently running vanilla work and only normalize ownership at the next safe checkpoint
+- if the case model cannot be reconstructed exactly, keep that patient in compatibility mode until the next safe checkpoint instead of forcing an unsafe rewrite takeover
 
 ## Rewrite Integration With Current Plugin Modules
 
@@ -772,7 +893,9 @@ Recommended decision payload:
 - `Mode`
 - `TargetClusterId`
 - `TargetDepartmentId`
+- `ReferralOutcomeClass`
 - `Reason`
+- `PlayerFacingExplanation`
 
 It should decide from case truth:
 
@@ -908,6 +1031,7 @@ These hooks reconcile materialized work or block unsafe discharge:
 - queue/task orchestrator reconciliation tick
 - patient routing checkpoint
 - hospitalization routing checkpoint
+- `ChangeDepartment(...)` / transfer-commit checkpoint
 - nurse-check discharge gate
 - any rewrite interception that would otherwise call `Leave`
 
@@ -940,11 +1064,38 @@ Validation is part of the architecture, not post-hoc hygiene.
 
 Minimum contract coverage should include:
 
-- routing/disposition gates: `TryToScheduleExamination`, `TryToStartScheduledExamination`, `SelectNextProcedure`, `SelectNextStep`, `IsHospitalizationOver`, `ReleaseFromObservation`, `Leave`, `BelongsToDepartment`, `DepartmentIsUnclear()`
+- routing/disposition gates: `TryToScheduleExamination`, `TryToStartScheduledExamination`, `SelectNextProcedure`, `SelectNextStep`, `IsHospitalizationOver`, `ReleaseFromObservation`, `Leave`, `BelongsToDepartment`, `DepartmentIsUnclear()`, `GetDepartment()`, `ChangeDepartment(...)`
 - event boundaries: chosen non-lab exam emitter, `FinishLabProceduresWithResultsReady(...)`, symptom uncover helpers if they are used for context
 - queue/runtime surfaces: `m_plannedExaminationStates`, `m_plannedTreatmentStates`, `m_activeTreatmentStates`, `m_labProcedures`, reserved procedure script fields used by execution bindings
 
 If a rollout stage relies on an unpatched vanilla path, that dependency must also be contract-tested explicitly.
+
+## Case Journal And Causal Timeline
+
+The player needs more than backlog and current plan.
+The case UI should answer:
+
+- what just changed
+- why the rewrite now wants this cluster / action / disposition
+- which interaction or contradiction is driving the next move
+
+`TimelineEntries[]` should therefore be written as causal, readable investigation notes rather than raw debug events.
+
+Useful entry families:
+
+- evidence reveal
+- support-label change
+- comorbidity interaction activated or cleared
+- cluster priority/routing change
+- disposition blocked or unblocked
+- referral decision and tradeoff
+
+Preferred phrasing examples:
+
+- "After `EXM_CT`, symptoms `X` and `Y` became visible."
+- "Because symptom `Y` matches neuro and conflicts with the current cardio explanation, neuro priority increased."
+- "Disposition blocked because treatment `A` still carries unresolved risk for problem `B`."
+- "Referral chosen because the required local capability is unavailable tonight."
 
 ## UI Behavior
 
@@ -954,7 +1105,9 @@ After one exam:
 
 - new symptoms appear in the common symptom ledger
 - diagnosis names remain hidden whenever `DiagnosisLabelVisibility` is still masked, even if the problem already appears in the ledger
-- timeline says what was discovered, not necessarily which hidden disease exists
+- timeline says what was discovered and why the next step changed, not necessarily which hidden disease exists
+- each visible problem may show a readable `SupportLabel`
+- active comorbidity interactions should be visible as short causal notes, not buried in hidden state
 
 The card should also separate:
 
@@ -962,6 +1115,10 @@ The card should also separate:
   - latent intents not yet materialized
 - `Current Plan`
   - active materialized slice visible to vanilla queue systems
+- `Disposition Reason`
+  - why discharge / clinic release / referral is currently allowed or blocked
+- `Referral Tradeoff`
+  - shown when the chosen outcome is `ReferOut`
 
 That avoids lying overlays while still exposing full case truth to the user.
 
@@ -971,6 +1128,8 @@ Recommended UI policy split:
   - controls whether the problem is shown in the shared case ledger
 - `DiagnosisLabelVisibility`
   - controls whether the diagnosis name is shown, hinted, or still masked
+- `SupportLabel`
+  - controls how strongly the current evidence supports the visible problem without exposing raw certainty math
 - `Suspected` should normally map to visible-in-ledger plus masked-diagnosis by default; stronger label reveal remains a separate policy decision
 
 ## Practical Outcome
@@ -979,10 +1138,14 @@ With this revised design:
 
 - one diagnostic action can produce evidence for several illnesses
 - evidence is stored once, at case level
+- comorbidity interactions turn multi-case patients into qualitatively different investigations, not just longer lists
 - cross-department findings stay visible without forcing immediate queue churn
+- referral becomes a meaningful strategic outcome instead of only a fail-safe
+- ambiguity can stay rich without hiding behind fake precision
 - only one active slice is pushed into vanilla queue
+- cases stay readable because instantiated problem tracks are capped to a reasonable maximum
 - scheduler and helper modules remain compatible because they still read queue-shaped data
-- nurse-check discharge and other release paths can be made correct through one case-level discharge gate
+- nurse-check discharge, clinic release, and referral paths can be made correct through one case-level disposition gate
 - vanilla single-diagnosis runtime is preserved through compatibility projection
 
 ## Short Version
@@ -993,5 +1156,6 @@ The correct mechanic is:
 2. the event fans out over all open case problems
 3. every symptom that this event can reveal right now becomes known
 4. affected problems recompute certainty/status in the case ledger
-5. the queue/task orchestrator later materializes exactly one executable slice
-6. scheduler, referral, overlays, and nurse discharge continue to look at that materialized slice, while case truth stays broader underneath
+5. interactions, ambiguity labels, and causal journal entries explain what that evidence now means
+6. the queue/task orchestrator later materializes exactly one executable slice
+7. scheduler, referral, overlays, and nurse discharge continue to look at that materialized slice, while case truth stays broader underneath
