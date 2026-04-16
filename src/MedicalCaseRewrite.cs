@@ -445,6 +445,11 @@ namespace ProjectHospital.AutoLabBalancer
 
     internal static class CaseCarePlanner
     {
+        private static bool IsPlannerTerminalStatus(CaseDiagnosisStatus status)
+        {
+            return status == CaseDiagnosisStatus.Treated || status == CaseDiagnosisStatus.ReferredOut;
+        }
+
         public static CaseDiagnosis SelectNextDiagnosis(PatientCase patientCase, string currentDepartmentId)
         {
             if (patientCase == null)
@@ -457,14 +462,14 @@ namespace ProjectHospital.AutoLabBalancer
             for (var i = 0; i < patientCase.Diagnoses.Count; i++)
             {
                 var diagnosis = patientCase.Diagnoses[i];
-                if (diagnosis != null && diagnosis.Status != CaseDiagnosisStatus.Treated && diagnosis.CollapseCapable)
+                if (diagnosis != null && !IsPlannerTerminalStatus(diagnosis.Status) && diagnosis.CollapseCapable)
                 {
                     hasCollapseCandidate = true;
                 }
 
                 if (!string.IsNullOrEmpty(currentDepartmentId)
                     && diagnosis != null
-                    && diagnosis.Status != CaseDiagnosisStatus.Treated
+                    && !IsPlannerTerminalStatus(diagnosis.Status)
                     && diagnosis.DepartmentId == currentDepartmentId
                     && diagnosis.Status != CaseDiagnosisStatus.Diagnosed
                     && diagnosis.Status != CaseDiagnosisStatus.Active)
@@ -481,7 +486,7 @@ namespace ProjectHospital.AutoLabBalancer
                     {
                         var diagnosis = patientCase.Diagnoses[i];
                         if (diagnosis != null
-                            && diagnosis.Status != CaseDiagnosisStatus.Treated
+                            && !IsPlannerTerminalStatus(diagnosis.Status)
                             && diagnosis.DepartmentId == currentDepartmentId
                             && (!hasUndiagnosedSameDepartment
                                 || (diagnosis.Status != CaseDiagnosisStatus.Diagnosed && diagnosis.Status != CaseDiagnosisStatus.Active)))
@@ -494,7 +499,7 @@ namespace ProjectHospital.AutoLabBalancer
                 for (var i = 0; i < patientCase.Diagnoses.Count; i++)
                 {
                     var diagnosis = patientCase.Diagnoses[i];
-                    if (diagnosis != null && diagnosis.Status != CaseDiagnosisStatus.Treated)
+                    if (diagnosis != null && !IsPlannerTerminalStatus(diagnosis.Status))
                     {
                         return diagnosis;
                     }
@@ -508,7 +513,7 @@ namespace ProjectHospital.AutoLabBalancer
             for (var i = 0; i < patientCase.Diagnoses.Count; i++)
             {
                 var diagnosis = patientCase.Diagnoses[i];
-                if (diagnosis == null || diagnosis.Status == CaseDiagnosisStatus.Treated)
+                if (diagnosis == null || IsPlannerTerminalStatus(diagnosis.Status))
                 {
                     continue;
                 }
@@ -716,6 +721,33 @@ namespace ProjectHospital.AutoLabBalancer
                     ReconcileCaseAtCheckpoint(SelectedPatient, CaseCheckpoint.Bootstrap, "tick");
                 }
             }
+        }
+
+        private static bool CanRunDeferredReconciliation(BehaviorPatient patient)
+        {
+            if (patient == null || patient.m_state == null)
+            {
+                return false;
+            }
+
+            var state = patient.m_state.m_patientState;
+            return state != PatientState.BeingExamined
+                && state != PatientState.BeingTreated
+                && state != PatientState.Leaving
+                && state != PatientState.Left
+                && state != PatientState.Collapsing
+                && state != PatientState.Dead;
+        }
+
+        public static void ProcessDeferredCaseReconciliation(BehaviorPatient patient)
+        {
+            var patientCase = GetCase(patient);
+            if (patientCase == null || patientCase.Complete || patientCase.DirtyFlags == CaseDirtyFlags.None || !CanRunDeferredReconciliation(patient))
+            {
+                return;
+            }
+
+            ReconcileCaseAtCheckpoint(patient, CaseCheckpoint.RoutingGate, "deferred_reconciliation");
         }
 
         private static bool IsMaterializationWriteActive()
@@ -1077,6 +1109,16 @@ namespace ProjectHospital.AutoLabBalancer
                 return;
             }
 
+            var previousStatusByIntentId = new Dictionary<string, CaseIntentStatus>(StringComparer.Ordinal);
+            for (var i = 0; i < patientCase.Intents.Count; i++)
+            {
+                var existingIntent = patientCase.Intents[i];
+                if (existingIntent != null && !string.IsNullOrEmpty(existingIntent.IntentId))
+                {
+                    previousStatusByIntentId[existingIntent.IntentId] = existingIntent.Status;
+                }
+            }
+
             patientCase.Intents.Clear();
             for (var i = 0; i < patientCase.Diagnoses.Count; i++)
             {
@@ -1088,36 +1130,43 @@ namespace ProjectHospital.AutoLabBalancer
 
                 if (diagnosis.KnownSymptomIds.Count < diagnosis.SymptomIds.Count)
                 {
-                    patientCase.Intents.Add(BuildIntent(diagnosis, CaseIntentKind.Examination, diagnosis.DiagnosisId, diagnosis.KnownSymptomIds.Count > 0 ? CaseIntentStatus.ReadyToMaterialize : CaseIntentStatus.Latent, ScoreDiagnosisPriority(diagnosis)));
+                    patientCase.Intents.Add(BuildIntent(diagnosis, CaseIntentKind.Examination, diagnosis.DiagnosisId, diagnosis.KnownSymptomIds.Count > 0 ? CaseIntentStatus.ReadyToMaterialize : CaseIntentStatus.Latent, ScoreDiagnosisPriority(diagnosis), previousStatusByIntentId));
                 }
 
                 if (diagnosis.TreatedSymptomIds.Count < diagnosis.KnownSymptomIds.Count || IsConfirmedStatus(diagnosis.Status))
                 {
-                    patientCase.Intents.Add(BuildIntent(diagnosis, CaseIntentKind.Treatment, diagnosis.DiagnosisId, diagnosis.KnownSymptomIds.Count > 0 ? CaseIntentStatus.ReadyToMaterialize : CaseIntentStatus.Blocked, ScoreDiagnosisPriority(diagnosis) - 10));
+                    patientCase.Intents.Add(BuildIntent(diagnosis, CaseIntentKind.Treatment, diagnosis.DiagnosisId, diagnosis.KnownSymptomIds.Count > 0 ? CaseIntentStatus.ReadyToMaterialize : CaseIntentStatus.Blocked, ScoreDiagnosisPriority(diagnosis) - 10, previousStatusByIntentId));
                 }
 
                 if (diagnosis.NeedsHospitalization)
                 {
-                    patientCase.Intents.Add(BuildIntent(diagnosis, CaseIntentKind.Hospitalization, diagnosis.DiagnosisId, CaseIntentStatus.ReadyToMaterialize, ScoreDiagnosisPriority(diagnosis) + 40));
+                    patientCase.Intents.Add(BuildIntent(diagnosis, CaseIntentKind.Hospitalization, diagnosis.DiagnosisId, CaseIntentStatus.ReadyToMaterialize, ScoreDiagnosisPriority(diagnosis) + 40, previousStatusByIntentId));
                 }
 
                 if (!string.IsNullOrEmpty(diagnosis.DepartmentId) && !string.IsNullOrEmpty(patientCase.ActiveDepartmentId) && !string.Equals(diagnosis.DepartmentId, patientCase.ActiveDepartmentId, StringComparison.Ordinal))
                 {
-                    patientCase.Intents.Add(BuildIntent(diagnosis, CaseIntentKind.Transfer, diagnosis.DiagnosisId, CaseIntentStatus.ReadyToMaterialize, ScoreDiagnosisPriority(diagnosis) + 20));
+                    patientCase.Intents.Add(BuildIntent(diagnosis, CaseIntentKind.Transfer, diagnosis.DiagnosisId, CaseIntentStatus.ReadyToMaterialize, ScoreDiagnosisPriority(diagnosis) + 20, previousStatusByIntentId));
                 }
 
                 if (diagnosis.NeedsHospitalization && !IsTerminalStatus(diagnosis.Status))
                 {
-                    patientCase.Intents.Add(BuildIntent(diagnosis, CaseIntentKind.Observation, diagnosis.DiagnosisId, CaseIntentStatus.ReadyToMaterialize, ScoreDiagnosisPriority(diagnosis) + 5));
+                    patientCase.Intents.Add(BuildIntent(diagnosis, CaseIntentKind.Observation, diagnosis.DiagnosisId, CaseIntentStatus.ReadyToMaterialize, ScoreDiagnosisPriority(diagnosis) + 5, previousStatusByIntentId));
                 }
             }
         }
 
-        private static CaseIntent BuildIntent(CaseDiagnosis diagnosis, CaseIntentKind kind, string procedureId, CaseIntentStatus status, int priority)
+        private static CaseIntent BuildIntent(CaseDiagnosis diagnosis, CaseIntentKind kind, string procedureId, CaseIntentStatus status, int priority, Dictionary<string, CaseIntentStatus> previousStatusByIntentId)
         {
+            var intentId = diagnosis.ProblemId + ":" + kind + ":" + procedureId;
+            CaseIntentStatus preservedStatus;
+            if (previousStatusByIntentId != null && previousStatusByIntentId.TryGetValue(intentId, out preservedStatus))
+            {
+                status = preservedStatus;
+            }
+
             var intent = new CaseIntent
             {
-                IntentId = diagnosis.ProblemId + ":" + kind + ":" + procedureId,
+                IntentId = intentId,
                 Kind = kind,
                 ProcedureId = procedureId,
                 OwningClusterId = diagnosis.OwningClusterId,
@@ -1363,6 +1412,32 @@ namespace ProjectHospital.AutoLabBalancer
             ReconcileCaseAtCheckpoint(patient, CaseCheckpoint.TryStartScheduledExamination, "try_start_scheduled_examination");
         }
 
+        public static bool ShouldRunVanillaTryStartScheduledExamination(BehaviorPatient patient, ref bool result)
+        {
+            var patientCase = GetCase(patient);
+            if (patientCase == null || patientCase.Complete)
+            {
+                return true;
+            }
+
+            OnTryStartScheduledExamination(patient);
+            var procedure = patient.GetComponent<ProcedureComponent>();
+            var queue = procedure == null || procedure.m_state == null ? null : procedure.m_state.m_procedureQueue;
+            if (queue == null)
+            {
+                result = false;
+                return false;
+            }
+
+            if (queue.m_plannedExaminationStates.Count > 0)
+            {
+                return true;
+            }
+
+            result = false;
+            return false;
+        }
+
         public static void OnSelectNextProcedureGate(BehaviorPatient patient)
         {
             var patientCase = GetCase(patient);
@@ -1372,6 +1447,18 @@ namespace ProjectHospital.AutoLabBalancer
             }
 
             ReconcileCaseAtCheckpoint(patient, CaseCheckpoint.SelectNextProcedure, "select_next_procedure");
+        }
+
+        public static bool ShouldRunVanillaSelectNextProcedure(BehaviorPatient patient)
+        {
+            var patientCase = GetCase(patient);
+            if (patientCase == null || patientCase.Complete)
+            {
+                return true;
+            }
+
+            OnSelectNextProcedureGate(patient);
+            return false;
         }
 
         public static void OnHospitalizationSelectNextStep(object hospitalization)
@@ -1385,6 +1472,32 @@ namespace ProjectHospital.AutoLabBalancer
             }
 
             ReconcileCaseAtCheckpoint(patient, CaseCheckpoint.HospitalizationGate, "hospitalization_select_next_step");
+        }
+
+        public static bool ShouldRunVanillaHospitalizationSelectNextStep(object hospitalization, ref bool result)
+        {
+            var entity = ReflectionHelpers.GetField(hospitalization, "m_entity") as GLib.Entity;
+            var patient = entity == null ? null : entity.GetComponent<BehaviorPatient>();
+            var patientCase = GetCase(patient);
+            if (patient == null || patientCase == null || patientCase.Complete)
+            {
+                return true;
+            }
+
+            OnHospitalizationSelectNextStep(hospitalization);
+            if (patientCase.Disposition.Mode == CaseDispositionMode.LeaveHospital)
+            {
+                result = true;
+                return false;
+            }
+
+            if (patientCase.Disposition.Mode == CaseDispositionMode.TransferToClinic || patientCase.Disposition.Mode == CaseDispositionMode.ReferOut)
+            {
+                result = true;
+                return false;
+            }
+
+            return true;
         }
 
         public static bool TryHandleNurseCheckDisposition(object hospitalization, HospitalizationState previousState, HospitalizationState newState)
@@ -1798,6 +1911,19 @@ namespace ProjectHospital.AutoLabBalancer
                     continue;
                 }
 
+                intent.Status = activeCluster != null && string.Equals(intent.OwningClusterId, activeCluster.ClusterId, StringComparison.Ordinal)
+                    ? CaseIntentStatus.Materialized
+                    : (intent.Status == CaseIntentStatus.Blocked ? CaseIntentStatus.Blocked : CaseIntentStatus.ReadyToMaterialize);
+            }
+
+            for (var i = 0; i < patientCase.Intents.Count; i++)
+            {
+                var intent = patientCase.Intents[i];
+                if (intent == null || intent.Status == CaseIntentStatus.Cancelled)
+                {
+                    continue;
+                }
+
                 if (activeCluster != null && string.Equals(intent.OwningClusterId, activeCluster.ClusterId, StringComparison.Ordinal))
                 {
                     patientCase.MaterializedSlice.IntentIds.Add(intent.IntentId);
@@ -1858,7 +1984,9 @@ namespace ProjectHospital.AutoLabBalancer
                 });
                 if (!string.IsNullOrEmpty(patientCase.MaterializedSlice.Bindings[patientCase.MaterializedSlice.Bindings.Count - 1].IntentId))
                 {
-                    patientCase.MaterializedSlice.RunningIntentIds.Add(patientCase.MaterializedSlice.Bindings[patientCase.MaterializedSlice.Bindings.Count - 1].IntentId);
+                    var intentId = patientCase.MaterializedSlice.Bindings[patientCase.MaterializedSlice.Bindings.Count - 1].IntentId;
+                    patientCase.MaterializedSlice.RunningIntentIds.Add(intentId);
+                    MarkIntentStatus(patientCase, intentId, CaseIntentStatus.Running);
                 }
             }
 
@@ -1879,7 +2007,9 @@ namespace ProjectHospital.AutoLabBalancer
                 });
                 if (!string.IsNullOrEmpty(patientCase.MaterializedSlice.Bindings[patientCase.MaterializedSlice.Bindings.Count - 1].IntentId))
                 {
-                    patientCase.MaterializedSlice.ReservedIntentIds.Add(patientCase.MaterializedSlice.Bindings[patientCase.MaterializedSlice.Bindings.Count - 1].IntentId);
+                    var intentId = patientCase.MaterializedSlice.Bindings[patientCase.MaterializedSlice.Bindings.Count - 1].IntentId;
+                    patientCase.MaterializedSlice.ReservedIntentIds.Add(intentId);
+                    MarkIntentStatus(patientCase, intentId, CaseIntentStatus.Materialized);
                 }
             }
 
@@ -1897,7 +2027,9 @@ namespace ProjectHospital.AutoLabBalancer
                 });
                 if (!string.IsNullOrEmpty(patientCase.MaterializedSlice.Bindings[patientCase.MaterializedSlice.Bindings.Count - 1].IntentId))
                 {
-                    patientCase.MaterializedSlice.RunningIntentIds.Add(patientCase.MaterializedSlice.Bindings[patientCase.MaterializedSlice.Bindings.Count - 1].IntentId);
+                    var intentId = patientCase.MaterializedSlice.Bindings[patientCase.MaterializedSlice.Bindings.Count - 1].IntentId;
+                    patientCase.MaterializedSlice.RunningIntentIds.Add(intentId);
+                    MarkIntentStatus(patientCase, intentId, CaseIntentStatus.Running);
                 }
             }
         }
@@ -1937,7 +2069,9 @@ namespace ProjectHospital.AutoLabBalancer
                 }
                 else if (kind == MaterializedBindingKind.ActiveTreatment && !string.IsNullOrEmpty(patientCase.MaterializedSlice.Bindings[patientCase.MaterializedSlice.Bindings.Count - 1].IntentId))
                 {
-                    patientCase.MaterializedSlice.ActiveTreatmentIntentIds.Add(patientCase.MaterializedSlice.Bindings[patientCase.MaterializedSlice.Bindings.Count - 1].IntentId);
+                    var intentId = patientCase.MaterializedSlice.Bindings[patientCase.MaterializedSlice.Bindings.Count - 1].IntentId;
+                    patientCase.MaterializedSlice.ActiveTreatmentIntentIds.Add(intentId);
+                    MarkIntentStatus(patientCase, intentId, CaseIntentStatus.Running);
                 }
             }
         }
@@ -1968,7 +2102,9 @@ namespace ProjectHospital.AutoLabBalancer
                 });
                 if (!string.IsNullOrEmpty(patientCase.MaterializedSlice.Bindings[patientCase.MaterializedSlice.Bindings.Count - 1].IntentId))
                 {
-                    patientCase.MaterializedSlice.ActiveLabIntentIds.Add(patientCase.MaterializedSlice.Bindings[patientCase.MaterializedSlice.Bindings.Count - 1].IntentId);
+                    var intentId = patientCase.MaterializedSlice.Bindings[patientCase.MaterializedSlice.Bindings.Count - 1].IntentId;
+                    patientCase.MaterializedSlice.ActiveLabIntentIds.Add(intentId);
+                    MarkIntentStatus(patientCase, intentId, CaseIntentStatus.Running);
                 }
             }
         }
@@ -2027,6 +2163,24 @@ namespace ProjectHospital.AutoLabBalancer
             }
 
             return null;
+        }
+
+        private static void MarkIntentStatus(PatientCase patientCase, string intentId, CaseIntentStatus status)
+        {
+            if (patientCase == null || string.IsNullOrEmpty(intentId))
+            {
+                return;
+            }
+
+            for (var i = 0; i < patientCase.Intents.Count; i++)
+            {
+                var intent = patientCase.Intents[i];
+                if (intent != null && string.Equals(intent.IntentId, intentId, StringComparison.Ordinal))
+                {
+                    intent.Status = status;
+                    return;
+                }
+            }
         }
 
         private static void UpdateCompatibilityProjection(PatientCase patientCase, CareCluster activeCluster, string projectedDepartmentId, string reason)
@@ -2172,7 +2326,7 @@ namespace ProjectHospital.AutoLabBalancer
             for (var i = 0; i < patientCase.Diagnoses.Count; i++)
             {
                 var diagnosis = patientCase.Diagnoses[i];
-                if (diagnosis == null || diagnosis.Status == CaseDiagnosisStatus.Treated)
+                if (diagnosis == null || IsTerminalStatus(diagnosis.Status))
                 {
                     continue;
                 }
@@ -2180,7 +2334,7 @@ namespace ProjectHospital.AutoLabBalancer
                 revealed += RevealFromDiagnosticEvent(diagnosis, kind, subjectId, eventId);
                 if (revealed > 0 && diagnosis.Status == CaseDiagnosisStatus.Hidden)
                 {
-                    diagnosis.Status = CaseDiagnosisStatus.Suspected;
+                    diagnosis.Status = CaseDiagnosisStatus.Observed;
                 }
             }
 
@@ -4029,8 +4183,6 @@ namespace ProjectHospital.AutoLabBalancer
                             PersistMirroredSymptoms(patientCase);
                         }
 
-                        ReconcileCaseAtCheckpoint(patient, CaseCheckpoint.DiagnosticEvent, "interview_event");
-
                         return;
                     }
                 }
@@ -4042,8 +4194,6 @@ namespace ProjectHospital.AutoLabBalancer
                 {
                     PersistMirroredSymptoms(patientCase);
                 }
-
-                ReconcileCaseAtCheckpoint(patient, CaseCheckpoint.DiagnosticEvent, "last_examination_event");
             }
             catch (Exception ex)
             {
@@ -4074,7 +4224,7 @@ namespace ProjectHospital.AutoLabBalancer
             for (var i = 0; i < patientCase.Diagnoses.Count; i++)
             {
                 var diagnosis = patientCase.Diagnoses[i];
-                if (diagnosis == null || diagnosis.Status == CaseDiagnosisStatus.Treated)
+                if (diagnosis == null || IsTerminalStatus(diagnosis.Status))
                 {
                     continue;
                 }
@@ -4097,13 +4247,11 @@ namespace ProjectHospital.AutoLabBalancer
 
             if (revealed <= 0)
             {
-                ReconcileCaseAtCheckpoint(patient, CaseCheckpoint.DiagnosticEvent, "examination_event_no_additional_reveal");
                 return;
             }
 
             AddTimeline(patientCase, revealed + " case symptom(s) revealed by examination.");
             MarkCaseDirty(patientCase, CaseDirtyFlags.Evidence | CaseDirtyFlags.Routing | CaseDirtyFlags.Materialization | CaseDirtyFlags.Disposition | CaseDirtyFlags.Timeline | CaseDirtyFlags.Ui);
-            ReconcileCaseAtCheckpoint(patient, CaseCheckpoint.DiagnosticEvent, "examination_event");
             Save();
         }
 
@@ -4122,7 +4270,7 @@ namespace ProjectHospital.AutoLabBalancer
             for (var i = 0; i < patientCase.Diagnoses.Count; i++)
             {
                 var diagnosis = patientCase.Diagnoses[i];
-                if (diagnosis == null || diagnosis.Status == CaseDiagnosisStatus.Treated)
+                if (diagnosis == null || IsTerminalStatus(diagnosis.Status))
                 {
                     continue;
                 }
@@ -8994,7 +9142,7 @@ namespace ProjectHospital.AutoLabBalancer
                 var diagnosis = patientCase.Diagnoses[i];
                 if (diagnosis != null
                     && diagnosis.DepartmentId == activeDepartmentId
-                    && diagnosis.Status != CaseDiagnosisStatus.Treated)
+                    && !IsTerminalStatus(diagnosis.Status))
                 {
                     TraceLoggingService.LogCaseAnomaly(
                         patientCase,
@@ -9020,7 +9168,7 @@ namespace ProjectHospital.AutoLabBalancer
             for (var i = 0; i < patientCase.Diagnoses.Count; i++)
             {
                 var diagnosis = patientCase.Diagnoses[i];
-                if (diagnosis == null || diagnosis.Status == CaseDiagnosisStatus.Treated)
+                if (diagnosis == null || IsTerminalStatus(diagnosis.Status))
                 {
                     continue;
                 }
@@ -11397,18 +11545,18 @@ namespace ProjectHospital.AutoLabBalancer
     [HarmonyPatch(typeof(BehaviorPatient), "TryToStartScheduledExamination")]
     internal static class MedicalCaseTryToStartScheduledExaminationPatch
     {
-        private static void Prefix(BehaviorPatient __instance)
+        private static bool Prefix(BehaviorPatient __instance, ref bool __result)
         {
-            MedicalCaseRewriteService.OnTryStartScheduledExamination(__instance);
+            return MedicalCaseRewriteService.ShouldRunVanillaTryStartScheduledExamination(__instance, ref __result);
         }
     }
 
     [HarmonyPatch(typeof(BehaviorPatient), "SelectNextProcedure")]
     internal static class MedicalCaseSelectNextProcedurePatch
     {
-        private static void Prefix(BehaviorPatient __instance)
+        private static bool Prefix(BehaviorPatient __instance)
         {
-            MedicalCaseRewriteService.OnSelectNextProcedureGate(__instance);
+            return MedicalCaseRewriteService.ShouldRunVanillaSelectNextProcedure(__instance);
         }
     }
 
@@ -11417,6 +11565,7 @@ namespace ProjectHospital.AutoLabBalancer
     {
         private static void Prefix(BehaviorPatient __instance)
         {
+            MedicalCaseRewriteService.ProcessDeferredCaseReconciliation(__instance);
             MedicalCaseRewriteService.UpdateCaseCollapse(__instance);
             MedicalCaseRewriteService.ProcessPendingDiagnosticFocus(__instance);
             MedicalCaseRewriteService.RecoverBlockedCaseState(__instance);
@@ -12077,9 +12226,9 @@ namespace ProjectHospital.AutoLabBalancer
     [HarmonyPatch(typeof(HospitalizationComponent), "SelectNextStep")]
     internal static class MedicalCaseHospitalizationSelectNextStepPatch
     {
-        private static void Prefix(HospitalizationComponent __instance)
+        private static bool Prefix(HospitalizationComponent __instance, ref bool __result)
         {
-            MedicalCaseRewriteService.OnHospitalizationSelectNextStep(__instance);
+            return MedicalCaseRewriteService.ShouldRunVanillaHospitalizationSelectNextStep(__instance, ref __result);
         }
     }
 
