@@ -14,6 +14,11 @@ namespace ProjectHospital.AutoLabBalancer
                 return false;
             }
 
+            if (MedicalCaseRewriteService.HasCaseRecord(patient))
+            {
+                return false;
+            }
+
             try
             {
                 var procedureComponent = GetProcedureComponent(patient);
@@ -326,7 +331,6 @@ namespace ProjectHospital.AutoLabBalancer
             SetField(state, "m_waitingForPlayer", false);
             SetField(state, "m_bookmarked", false);
             TryClearBookmark(entity);
-            MedicalCaseRewriteService.MarkReferred(patient, reason);
 
             RuntimeCounters.EquipmentReferrals++;
             Debug("Referred equipment-blocked patient to another hospital. Payment=" + payment
@@ -361,7 +365,6 @@ namespace ProjectHospital.AutoLabBalancer
             SetField(state, "m_waitingForPlayer", false);
             SetField(state, "m_bookmarked", false);
             TryClearBookmark(entity);
-            MedicalCaseRewriteService.MarkReferred(patient, reason);
 
             RuntimeCounters.UnsupportedDiagnosisReferrals++;
             Debug("Referred unsupported diagnosed outpatient to another hospital. Payment=" + payment
@@ -555,17 +558,6 @@ namespace ProjectHospital.AutoLabBalancer
             if (percent > 100)
             {
                 percent = 100;
-            }
-
-            var casePayment = MedicalCaseRewriteService.GetCaseInsurancePayment(patient, percent);
-            if (MedicalCaseRewriteService.HasCaseRecord(patient))
-            {
-                return Math.Max(0, casePayment);
-            }
-
-            if (casePayment > 0)
-            {
-                return casePayment;
             }
 
             var medicalCondition = ReflectionHelpers.GetField(patientState, "m_medicalCondition");

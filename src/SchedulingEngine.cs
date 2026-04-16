@@ -230,6 +230,20 @@ namespace ProjectHospital.AutoLabBalancer
             }
         }
 
+        public static void InvalidateForMaterializedSliceChange(object patient)
+        {
+            if (!Enabled)
+            {
+                return;
+            }
+
+            lock (Sync)
+            {
+                _nextRebuildAt = 0f;
+                _snapshot = null;
+            }
+        }
+
         public static void Tick(float now)
         {
             if (!Enabled || now < _nextRebuildAt)
@@ -759,7 +773,6 @@ namespace ProjectHospital.AutoLabBalancer
             }
 
             var state = ReflectionHelpers.GetField(patient, "m_state");
-            var countedDoctorWait = false;
             if (state != null)
             {
                 var patientState = ReflectionHelpers.GetField(state, "m_patientState");
@@ -769,20 +782,9 @@ namespace ProjectHospital.AutoLabBalancer
                     board.Score += 60;
                     board.DoctorScore += 60;
                     AddTask(board, patient, "doctor", SchedulingTaskType.WaitingPatient, 60, null);
-                    countedDoctorWait = true;
                 }
             }
 
-            var behaviorPatient = patient as Lopital.BehaviorPatient;
-            if (!countedDoctorWait
-                && behaviorPatient != null
-                && MedicalCaseRewriteService.HasCurrentDepartmentDoctorWork(behaviorPatient))
-            {
-                board.WaitingPatients++;
-                board.Score += 45;
-                board.DoctorScore += 45;
-                AddTask(board, patient, "doctor", SchedulingTaskType.WaitingPatient, 45, null);
-            }
         }
 
         private static void CountHospitalizedTasks(object hospitalization, SchedulingDepartmentBoard board)

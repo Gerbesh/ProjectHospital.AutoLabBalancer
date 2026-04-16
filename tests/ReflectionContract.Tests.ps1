@@ -262,6 +262,7 @@ Require-Method "Lopital.ProcedureManager" "Update" @("System.Int32") | Out-Null
 Require-Method "Lopital.HospitalizationComponent" "Update" @("System.Single") | Out-Null
 Require-Method "Lopital.HospitalizationComponent" "SelectNextStep" @("System.Single") "System.Boolean" | Out-Null
 Require-Method "Lopital.HospitalizationComponent" "IsHospitalizationOver" @() "System.Boolean" | Out-Null
+Require-Method "Lopital.HospitalizationComponent" "ReleaseFromObservation" @() "System.Boolean" | Out-Null
 Require-Method "Lopital.BehaviorDoctor" "Update" @("System.Single") | Out-Null
 Require-Method "Lopital.BehaviorDoctor" "UpdateStateIdle" @("System.Single") | Out-Null
 Require-Method "Lopital.BehaviorNurse" "Update" @("System.Single") | Out-Null
@@ -392,6 +393,7 @@ Write-Host "Section: Referrals"
 # Referrals
 Require-Method "Lopital.BehaviorPatient" "TryToStartScheduledExamination" @() | Out-Null
 Require-Method "Lopital.BehaviorPatient" "TryToScheduleExamination" @("System.Boolean") "System.Boolean" | Out-Null
+Require-Method "Lopital.BehaviorPatient" "DepartmentIsUnclear" @() "System.Boolean" | Out-Null
 Require-Method "Lopital.BehaviorPatient" "Leave" @("System.Boolean", "System.Boolean", "System.Boolean") | Out-Null
 Require-Method "Lopital.BehaviorPatient" "SendHome" @() | Out-Null
 Require-Method "Lopital.BehaviorPatient" "Diagnose" @("System.Int32", "System.Boolean") "Lopital.DiagnosisResult" | Out-Null
@@ -411,6 +413,9 @@ Require-Method "Lopital.BehaviorPatient" "TryToCollapse" @() "System.Boolean" | 
 Require-Method "Lopital.BehaviorPatient" "GetInsurancePayment" @("System.Boolean") "System.Int32" | Out-Null
 Require-Method "Lopital.BehaviorPatient" "UncoverSymptomsFromLastExamination" @("ProcedureScript") "System.Int32" | Out-Null
 Require-Method "Lopital.BehaviorPatient" "UncoverSymptomsFromLabExamination" @("GameDBExamination") "System.Int32" | Out-Null
+Require-Method "Lopital.ProcedureComponent" "FinishLabProceduresWithResultsReady" @() | Out-Null
+Require-Method "Lopital.ProcedureScriptExaminationDoctorsInterview" "UpdateStatePatientTalking" @() | Out-Null
+Require-Method "Lopital.ProcedureScriptExaminationReceptionFast" "UpdateStatePatientTalking" @() | Out-Null
 Require-Method "Lopital.ProcedureComponent" "GetAllExaminationsForMedicalCondition" @("Lopital.MedicalCondition", "System.Boolean", "System.Boolean") | Out-Null
 Require-Method "Lopital.ProcedureComponent" "UpdateAllExaminationsForMedicalCondition" @("Lopital.MedicalCondition", "System.Int32", "System.Boolean") | Out-Null
 Require-Method "Lopital.ProcedureComponent" "GetAllTreatmentsForMedicalCondition" @("Lopital.MedicalCondition", "Lopital.TreatmentPlanningMode") | Out-Null
@@ -437,7 +442,9 @@ Require-Property "GameDBSymptom" "CollapseSymptomRef" | Out-Null
 Require-Property "GameDBSymptom" "PatientMobility" | Out-Null
 Require-Property "GameDBSymptom" "CanNotTalk" | Out-Null
 Require-Property "GameDBSymptom" "BleedingLevel" | Out-Null
+Require-Property "GameDBSymptom" "DiscoveredByMonitoring" "System.Boolean" | Out-Null
 Require-Method "Lopital.MedicalCondition" "GetWorstHazard" @() "SymptomHazard" | Out-Null
+Require-Method "Lopital.MedicalCondition" "Update" @("System.Single", "GLib.Entity") "MedicalConditionChange" | Out-Null
 Require-Method "Lopital.MedicalCondition" "GetWorstKnownHazard" @("Lopital.ProcedureQueue") "SymptomHazard" | Out-Null
 Require-Method "Lopital.MedicalCondition" "GetWorstPossibleHazard" @() "SymptomHazard" | Out-Null
 Require-Method "Lopital.MedicalCondition" "HasBeenTreated" @("Lopital.ProcedureQueue") "System.Boolean" | Out-Null

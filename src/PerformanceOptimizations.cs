@@ -297,6 +297,18 @@ namespace ProjectHospital.AutoLabBalancer
             PruneRouteRequests(now);
         }
 
+        public static void InvalidateForMaterializedSliceChange(object patient)
+        {
+            if (!Enabled || patient == null)
+            {
+                return;
+            }
+
+            SelectNextStepBackoff.Remove(patient);
+            WaitingSittingBackoff.Remove(patient);
+            PatientDoctorSearchBackoff.Remove(patient);
+        }
+
         public static bool ShouldSkipRepeatedRouteRequest(object walkComponent, object destination, int floorIndex, object movementType)
         {
             if (!Enabled
@@ -803,15 +815,6 @@ namespace ProjectHospital.AutoLabBalancer
 
         public static bool ShouldSkipWaitingSitting(object patient)
         {
-            if (MedicalCaseRewriteService.HasOpenCase(patient))
-            {
-                WaitingSittingBackoff.Remove(patient);
-                PatientDoctorSearchBackoff.Remove(patient);
-                SchedulingEngineService.RecordOutpatientGating(false);
-                TraceLoggingService.LogRateLimitedPatientEvent(patient as Lopital.BehaviorPatient ?? ReflectionHelpers.GetComponentByTypeName(patient, "Lopital.BehaviorPatient") as Lopital.BehaviorPatient, "PERF", "Bypassed waiting-room backoff for open medical case.", 1.0f);
-                return false;
-            }
-
             SchedulingDepartmentBoard board;
             if (SchedulingEngineService.TryGetPatientDepartmentBoard(patient, out board))
             {
@@ -842,26 +845,11 @@ namespace ProjectHospital.AutoLabBalancer
                 return;
             }
 
-            if (MedicalCaseRewriteService.HasOpenCase(patient))
-            {
-                WaitingSittingBackoff.Remove(patient);
-                return;
-            }
-
             SetAdaptiveBackoff(WaitingSittingBackoff, patient, RuntimeSettings.Config.OutpatientQueueBackoffSeconds.Value, RuntimeSettings.Config.OutpatientQueueBackoffMaxSeconds.Value);
         }
 
         public static bool ShouldSkipPatientDoctorSearch(object patient)
         {
-            if (MedicalCaseRewriteService.HasOpenCase(patient))
-            {
-                PatientDoctorSearchBackoff.Remove(patient);
-                WaitingSittingBackoff.Remove(patient);
-                SchedulingEngineService.RecordDoctorSearchGating(false);
-                TraceLoggingService.LogRateLimitedPatientEvent(patient as Lopital.BehaviorPatient ?? ReflectionHelpers.GetComponentByTypeName(patient, "Lopital.BehaviorPatient") as Lopital.BehaviorPatient, "PERF", "Bypassed doctor-search backoff for open medical case.", 1.0f);
-                return false;
-            }
-
             SchedulingDepartmentBoard board;
             if (SchedulingEngineService.TryGetPatientDepartmentBoard(patient, out board))
             {
@@ -889,13 +877,6 @@ namespace ProjectHospital.AutoLabBalancer
         {
             if (!Enabled || patient == null)
             {
-                return;
-            }
-
-            if (MedicalCaseRewriteService.HasOpenCase(patient))
-            {
-                PatientDoctorSearchBackoff.Remove(patient);
-                WaitingSittingBackoff.Remove(patient);
                 return;
             }
 

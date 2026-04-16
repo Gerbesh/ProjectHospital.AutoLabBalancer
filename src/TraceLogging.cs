@@ -256,18 +256,11 @@ namespace ProjectHospital.AutoLabBalancer
             }
 
             UiSnapshots[storageKey] = snapshotPayload;
-            var snapshot = new CaseTraceSnapshot
+            WriteLine("SNAPSHOT", entity.GetEntityID(), GetEntityName(entity), FormatSnapshot(new CaseTraceSnapshot
             {
                 Scope = "ui",
                 Payload = snapshotPayload
-            };
-            WriteLine("SNAPSHOT", entity.GetEntityID(), GetEntityName(entity), FormatSnapshot(snapshot, "STATE"));
-
-            var uiDesyncReason = MedicalCaseRewriteService.GetUiRuntimeDesyncReason(patient);
-            if (!string.IsNullOrEmpty(uiDesyncReason))
-            {
-                LogPatientAnomaly(patient, "ui_runtime_desync", "source=" + NormalizeValue(source) + ";reason=" + NormalizeValue(uiDesyncReason));
-            }
+            }, "STATE"));
         }
 
         internal static CaseTraceQueueState CaptureQueueState(BehaviorPatient patient)
@@ -488,11 +481,6 @@ namespace ProjectHospital.AutoLabBalancer
             return ReflectionHelpers.GetField(state, "m_procedureQueue");
         }
 
-        private static string BuildDetailedCaseSnapshot(BehaviorPatient patient)
-        {
-            return MedicalCaseRewriteService.BuildDetailedCaseTrace(patient);
-        }
-
         private static string BuildDetailedQueueSnapshot(BehaviorPatient patient)
         {
             var queueState = CaptureQueueState(patient);
@@ -510,6 +498,11 @@ namespace ProjectHospital.AutoLabBalancer
             AppendField(builder, "reserved_procedure_script", reservedProcedure);
             AppendField(builder, "hospitalization_treatment", requestedHospitalization);
             return builder.ToString();
+        }
+
+        private static string BuildDetailedCaseSnapshot(BehaviorPatient patient)
+        {
+            return MedicalCaseRewriteService.BuildDetailedCaseTrace(patient);
         }
 
         private static string BuildUiSnapshot(BehaviorPatient patient, string source)
@@ -842,7 +835,6 @@ namespace ProjectHospital.AutoLabBalancer
             NurseSnapshots.Clear();
             LabSnapshots.Clear();
             JanitorSnapshots.Clear();
-            UiSnapshots.Clear();
             RateLimitTimestamps.Clear();
         }
 

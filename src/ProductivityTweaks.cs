@@ -431,6 +431,11 @@ namespace ProjectHospital.AutoLabBalancer
 
             try
             {
+                if (MedicalCaseRewriteService.TryHandleNurseCheckDisposition(hospitalization, previousState, newState))
+                {
+                    return;
+                }
+
                 if (TryDowngradeIcuAfterNurseCheck(hospitalization))
                 {
                     return;
@@ -557,11 +562,6 @@ namespace ProjectHospital.AutoLabBalancer
             var entity = GetEntityFromComponent(hospitalization);
             var patient = ReflectionHelpers.GetComponentByTypeName(entity, "Lopital.BehaviorPatient") as Lopital.BehaviorPatient;
             if (patient == null || IsPatientGone(patient) || patient.GetControlMode() != Lopital.PatientControlMode.AI)
-            {
-                return false;
-            }
-
-            if (!MedicalCaseRewriteService.TryAdvanceBeforeDischarge(patient))
             {
                 return false;
             }
