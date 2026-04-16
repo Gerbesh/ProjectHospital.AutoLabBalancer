@@ -109,11 +109,16 @@ namespace ProjectHospital.AutoLabBalancer
 
     internal enum CaseDiagnosisStatus
     {
-        Active,
         Hidden,
+        Observed,
         Suspected,
+        Confirmable,
         Diagnosed,
+        Active,
+        Controlled,
         Treated
+        ,
+        ReferredOut
     }
 
     [Flags]
@@ -308,6 +313,12 @@ namespace ProjectHospital.AutoLabBalancer
         public int Version;
         public readonly List<string> VisibleProblemIds = new List<string>();
         public readonly List<string> IntentIds = new List<string>();
+        public readonly List<string> ReservedIntentIds = new List<string>();
+        public readonly List<string> RunningIntentIds = new List<string>();
+        public readonly List<string> ActiveLabIntentIds = new List<string>();
+        public readonly List<string> ActiveTreatmentIntentIds = new List<string>();
+        public readonly List<string> VanillaPlannedExaminations = new List<string>();
+        public readonly List<string> VanillaPlannedTreatments = new List<string>();
         public readonly List<MaterializedBinding> Bindings = new List<MaterializedBinding>();
         public bool WaitingTransferCommit;
         public string PendingTargetDepartmentId;
@@ -319,6 +330,10 @@ namespace ProjectHospital.AutoLabBalancer
         public string ProjectedDiagnosisId;
         public string ProjectedClusterId;
         public string ProjectedDepartmentId;
+        public string ProjectedHazard;
+        public string ProjectedDiagnosisState;
+        public bool BlocksVanillaDischarge;
+        public readonly List<string> ProjectedSymptomIds = new List<string>();
         public string Reason;
         public float UpdatedAtHours;
     }
@@ -673,6 +688,7 @@ namespace ProjectHospital.AutoLabBalancer
         private const int MaxTimelineEntries = 96;
         private const int DefaultProblemTrackCap = 15;
         private static BehaviorPatient SelectedPatient;
+        private static int MaterializationWriteDepth;
 
         public static bool Enabled
         {
@@ -694,8 +710,61 @@ namespace ProjectHospital.AutoLabBalancer
             EnsureLoaded();
             if (SelectedPatient != null)
             {
-                ReconcileCaseAtCheckpoint(SelectedPatient, CaseCheckpoint.Bootstrap, "tick");
+                var patientCase = GetCase(SelectedPatient);
+                if (patientCase != null && patientCase.DirtyFlags != CaseDirtyFlags.None)
+                {
+                    ReconcileCaseAtCheckpoint(SelectedPatient, CaseCheckpoint.Bootstrap, "tick");
+                }
             }
+        }
+
+        private static bool IsMaterializationWriteActive()
+        {
+            return MaterializationWriteDepth > 0;
+        }
+
+        private static bool IsTerminalStatus(CaseDiagnosisStatus status)
+        {
+            return status == CaseDiagnosisStatus.Treated || status == CaseDiagnosisStatus.ReferredOut;
+        }
+
+        private static bool IsConfirmedStatus(CaseDiagnosisStatus status)
+        {
+            return status == CaseDiagnosisStatus.Diagnosed
+                || status == CaseDiagnosisStatus.Active
+                || status == CaseDiagnosisStatus.Controlled
+                || status == CaseDiagnosisStatus.Treated;
+        }
+
+        private static bool IsVisibleStatus(CaseDiagnosisStatus status)
+        {
+            return status != CaseDiagnosisStatus.Hidden;
+        }
+
+        private static void MarkCaseDirty(PatientCase patientCase, CaseDirtyFlags flags)
+        {
+            if (patientCase != null)
+            {
+                patientCase.DirtyFlags |= flags;
+            }
+        }
+
+        private static bool ShouldReconcileNow(PatientCase patientCase, CaseCheckpoint checkpoint)
+        {
+            if (patientCase == null || patientCase.Complete)
+            {
+                return false;
+            }
+
+            if (patientCase.DirtyFlags != CaseDirtyFlags.None)
+            {
+                return true;
+            }
+
+            return checkpoint == CaseCheckpoint.ChangeDepartmentCommit
+                || checkpoint == CaseCheckpoint.NurseCheck
+                || checkpoint == CaseCheckpoint.HospitalizationGate
+                || checkpoint == CaseCheckpoint.RoutingGate;
         }
 
         public static bool IsRewriteOwned(BehaviorPatient patient)
@@ -743,7 +812,7 @@ namespace ProjectHospital.AutoLabBalancer
                 }
 
                 diagnosis.RequiresHospitalization = diagnosis.NeedsHospitalization;
-                diagnosis.BlocksDischarge = diagnosis.Status != CaseDiagnosisStatus.Treated;
+                diagnosis.BlocksDischarge = !IsTerminalStatus(diagnosis.Status);
                 EnsureSymptomStateTable(diagnosis);
                 patientCase.Problems.Add(diagnosis);
             }
@@ -1012,7 +1081,7 @@ namespace ProjectHospital.AutoLabBalancer
             for (var i = 0; i < patientCase.Diagnoses.Count; i++)
             {
                 var diagnosis = patientCase.Diagnoses[i];
-                if (diagnosis == null || diagnosis.Status == CaseDiagnosisStatus.Treated)
+                if (diagnosis == null || IsTerminalStatus(diagnosis.Status))
                 {
                     continue;
                 }
@@ -1022,7 +1091,7 @@ namespace ProjectHospital.AutoLabBalancer
                     patientCase.Intents.Add(BuildIntent(diagnosis, CaseIntentKind.Examination, diagnosis.DiagnosisId, diagnosis.KnownSymptomIds.Count > 0 ? CaseIntentStatus.ReadyToMaterialize : CaseIntentStatus.Latent, ScoreDiagnosisPriority(diagnosis)));
                 }
 
-                if (diagnosis.TreatedSymptomIds.Count < diagnosis.KnownSymptomIds.Count || diagnosis.Status == CaseDiagnosisStatus.Diagnosed)
+                if (diagnosis.TreatedSymptomIds.Count < diagnosis.KnownSymptomIds.Count || IsConfirmedStatus(diagnosis.Status))
                 {
                     patientCase.Intents.Add(BuildIntent(diagnosis, CaseIntentKind.Treatment, diagnosis.DiagnosisId, diagnosis.KnownSymptomIds.Count > 0 ? CaseIntentStatus.ReadyToMaterialize : CaseIntentStatus.Blocked, ScoreDiagnosisPriority(diagnosis) - 10));
                 }
@@ -1030,6 +1099,16 @@ namespace ProjectHospital.AutoLabBalancer
                 if (diagnosis.NeedsHospitalization)
                 {
                     patientCase.Intents.Add(BuildIntent(diagnosis, CaseIntentKind.Hospitalization, diagnosis.DiagnosisId, CaseIntentStatus.ReadyToMaterialize, ScoreDiagnosisPriority(diagnosis) + 40));
+                }
+
+                if (!string.IsNullOrEmpty(diagnosis.DepartmentId) && !string.IsNullOrEmpty(patientCase.ActiveDepartmentId) && !string.Equals(diagnosis.DepartmentId, patientCase.ActiveDepartmentId, StringComparison.Ordinal))
+                {
+                    patientCase.Intents.Add(BuildIntent(diagnosis, CaseIntentKind.Transfer, diagnosis.DiagnosisId, CaseIntentStatus.ReadyToMaterialize, ScoreDiagnosisPriority(diagnosis) + 20));
+                }
+
+                if (diagnosis.NeedsHospitalization && !IsTerminalStatus(diagnosis.Status))
+                {
+                    patientCase.Intents.Add(BuildIntent(diagnosis, CaseIntentKind.Observation, diagnosis.DiagnosisId, CaseIntentStatus.ReadyToMaterialize, ScoreDiagnosisPriority(diagnosis) + 5));
                 }
             }
         }
@@ -1145,7 +1224,7 @@ namespace ProjectHospital.AutoLabBalancer
             patientCase.Disposition.Reason = reason;
             patientCase.Disposition.ReferralTradeoff = string.Empty;
             patientCase.Disposition.BlocksDischarge = nextDiagnosis != null;
-            patientCase.Disposition.BlocksReleaseFromObservation = nextDiagnosis != null && nextDiagnosis.Status != CaseDiagnosisStatus.Treated;
+            patientCase.Disposition.BlocksReleaseFromObservation = nextDiagnosis != null && !IsTerminalStatus(nextDiagnosis.Status);
 
             if (nextDiagnosis == null)
             {
@@ -1190,12 +1269,122 @@ namespace ProjectHospital.AutoLabBalancer
         public static void ReconcileCaseAtCheckpoint(BehaviorPatient patient, CaseCheckpoint checkpoint, string reason)
         {
             var patientCase = GetCase(patient);
-            if (patientCase == null || patientCase.Complete)
+            if (patientCase == null || patientCase.Complete || !ShouldReconcileNow(patientCase, checkpoint))
             {
                 return;
             }
 
             EnsureRuntimeModel(patient, patientCase, checkpoint, reason);
+            if (MaterializeCaseExecution(patient, patientCase, checkpoint, reason))
+            {
+                EnsureRuntimeModel(patient, patientCase, checkpoint, reason + "_post_materialize");
+            }
+
+            patientCase.DirtyFlags = CaseDirtyFlags.None;
+        }
+
+        private static bool MaterializeCaseExecution(BehaviorPatient patient, PatientCase patientCase, CaseCheckpoint checkpoint, string reason)
+        {
+            if (patient == null || patientCase == null || patientCase.Complete)
+            {
+                return false;
+            }
+
+            if (patientCase.MaterializedSlice.WaitingTransferCommit)
+            {
+                return false;
+            }
+
+            MaterializationWriteDepth++;
+            try
+            {
+                var mutated = false;
+                if (patientCase.Disposition.Mode == CaseDispositionMode.TransferToClinic
+                    && !string.IsNullOrEmpty(patientCase.Disposition.TargetDepartmentId)
+                    && checkpoint != CaseCheckpoint.ChangeDepartmentCommit)
+                {
+                    var targetDepartment = ResolveDepartment(patientCase.Disposition.TargetDepartmentId);
+                    if (targetDepartment != null && patient.GetDepartment() != targetDepartment)
+                    {
+                        patient.ChangeDepartment(targetDepartment, checkHospitalizationPlace: false);
+                        mutated = true;
+                    }
+                }
+
+                var procedure = patient.GetComponent<ProcedureComponent>();
+                var queue = procedure == null || procedure.m_state == null ? null : procedure.m_state.m_procedureQueue;
+                if (queue == null)
+                {
+                    return mutated;
+                }
+
+                if (queue.m_activeExamination == null
+                    && queue.m_plannedExaminationStates.Count == 0
+                    && queue.m_labProcedures.Count == 0
+                    && HasCaseAvailableExamination(patient))
+                {
+                    mutated = TryScheduleCaseAwareExamination(patient) || mutated;
+                }
+
+                if (queue.m_activeTreatmentStates.Count == 0
+                    && queue.m_plannedTreatmentStates.Count == 0
+                    && HasCaseAvailableTreatmentOrProgress(patient))
+                {
+                    mutated = TryScheduleCaseAwareTreatment(patient) || mutated;
+                }
+
+                if (patientCase.Disposition.Mode == CaseDispositionMode.ReferOut && checkpoint != CaseCheckpoint.DiagnosticEvent)
+                {
+                    mutated = TryReferBlockedCase(patient, "reconcile", reason) || mutated;
+                }
+
+                if (mutated)
+                {
+                    MarkCaseDirty(patientCase, CaseDirtyFlags.Materialization | CaseDirtyFlags.Ui);
+                }
+
+                return mutated;
+            }
+            finally
+            {
+                MaterializationWriteDepth = Math.Max(0, MaterializationWriteDepth - 1);
+            }
+        }
+
+        public static void OnTryStartScheduledExamination(BehaviorPatient patient)
+        {
+            var patientCase = GetCase(patient);
+            if (patientCase == null || patientCase.Complete)
+            {
+                return;
+            }
+
+            MarkCaseDirty(patientCase, CaseDirtyFlags.Materialization | CaseDirtyFlags.Ui);
+            ReconcileCaseAtCheckpoint(patient, CaseCheckpoint.TryStartScheduledExamination, "try_start_scheduled_examination");
+        }
+
+        public static void OnSelectNextProcedureGate(BehaviorPatient patient)
+        {
+            var patientCase = GetCase(patient);
+            if (patientCase == null || patientCase.Complete)
+            {
+                return;
+            }
+
+            ReconcileCaseAtCheckpoint(patient, CaseCheckpoint.SelectNextProcedure, "select_next_procedure");
+        }
+
+        public static void OnHospitalizationSelectNextStep(object hospitalization)
+        {
+            var entity = ReflectionHelpers.GetField(hospitalization, "m_entity") as GLib.Entity;
+            var patient = entity == null ? null : entity.GetComponent<BehaviorPatient>();
+            var patientCase = GetCase(patient);
+            if (patient == null || patientCase == null || patientCase.Complete)
+            {
+                return;
+            }
+
+            ReconcileCaseAtCheckpoint(patient, CaseCheckpoint.HospitalizationGate, "hospitalization_select_next_step");
         }
 
         public static bool TryHandleNurseCheckDisposition(object hospitalization, HospitalizationState previousState, HospitalizationState newState)
@@ -1589,6 +1778,12 @@ namespace ProjectHospital.AutoLabBalancer
                 : null;
             patientCase.MaterializedSlice.VisibleProblemIds.Clear();
             patientCase.MaterializedSlice.IntentIds.Clear();
+            patientCase.MaterializedSlice.ReservedIntentIds.Clear();
+            patientCase.MaterializedSlice.RunningIntentIds.Clear();
+            patientCase.MaterializedSlice.ActiveLabIntentIds.Clear();
+            patientCase.MaterializedSlice.ActiveTreatmentIntentIds.Clear();
+            patientCase.MaterializedSlice.VanillaPlannedExaminations.Clear();
+            patientCase.MaterializedSlice.VanillaPlannedTreatments.Clear();
             patientCase.MaterializedSlice.Bindings.Clear();
             if (activeCluster != null)
             {
@@ -1606,6 +1801,14 @@ namespace ProjectHospital.AutoLabBalancer
                 if (activeCluster != null && string.Equals(intent.OwningClusterId, activeCluster.ClusterId, StringComparison.Ordinal))
                 {
                     patientCase.MaterializedSlice.IntentIds.Add(intent.IntentId);
+                    if (intent.Status == CaseIntentStatus.Running)
+                    {
+                        patientCase.MaterializedSlice.RunningIntentIds.Add(intent.IntentId);
+                    }
+                    else if (intent.Status == CaseIntentStatus.Materialized)
+                    {
+                        patientCase.MaterializedSlice.ReservedIntentIds.Add(intent.IntentId);
+                    }
                 }
             }
 
@@ -1653,6 +1856,10 @@ namespace ProjectHospital.AutoLabBalancer
                     DepartmentId = patientCase.ActiveDepartmentId,
                     Description = "active examination"
                 });
+                if (!string.IsNullOrEmpty(patientCase.MaterializedSlice.Bindings[patientCase.MaterializedSlice.Bindings.Count - 1].IntentId))
+                {
+                    patientCase.MaterializedSlice.RunningIntentIds.Add(patientCase.MaterializedSlice.Bindings[patientCase.MaterializedSlice.Bindings.Count - 1].IntentId);
+                }
             }
 
             CapturePlannedBindings(queue.m_plannedExaminationStates, "m_examination", MaterializedBindingKind.PlannedExamination, patientCase);
@@ -1670,6 +1877,10 @@ namespace ProjectHospital.AutoLabBalancer
                     DepartmentId = patientCase.ActiveDepartmentId,
                     Description = procedure.m_state.m_reservedProcedureScript.GetEntity().GetType().Name
                 });
+                if (!string.IsNullOrEmpty(patientCase.MaterializedSlice.Bindings[patientCase.MaterializedSlice.Bindings.Count - 1].IntentId))
+                {
+                    patientCase.MaterializedSlice.ReservedIntentIds.Add(patientCase.MaterializedSlice.Bindings[patientCase.MaterializedSlice.Bindings.Count - 1].IntentId);
+                }
             }
 
             var hospitalization = patient.GetComponent<HospitalizationComponent>();
@@ -1684,6 +1895,10 @@ namespace ProjectHospital.AutoLabBalancer
                     DepartmentId = patientCase.ActiveDepartmentId,
                     Description = patientCase.Disposition.Reason
                 });
+                if (!string.IsNullOrEmpty(patientCase.MaterializedSlice.Bindings[patientCase.MaterializedSlice.Bindings.Count - 1].IntentId))
+                {
+                    patientCase.MaterializedSlice.RunningIntentIds.Add(patientCase.MaterializedSlice.Bindings[patientCase.MaterializedSlice.Bindings.Count - 1].IntentId);
+                }
             }
         }
 
@@ -1712,6 +1927,18 @@ namespace ProjectHospital.AutoLabBalancer
                     DepartmentId = patientCase.ActiveDepartmentId,
                     Description = fieldName
                 });
+                if (kind == MaterializedBindingKind.PlannedExamination)
+                {
+                    patientCase.MaterializedSlice.VanillaPlannedExaminations.Add(id);
+                }
+                else if (kind == MaterializedBindingKind.PlannedTreatment)
+                {
+                    patientCase.MaterializedSlice.VanillaPlannedTreatments.Add(id);
+                }
+                else if (kind == MaterializedBindingKind.ActiveTreatment && !string.IsNullOrEmpty(patientCase.MaterializedSlice.Bindings[patientCase.MaterializedSlice.Bindings.Count - 1].IntentId))
+                {
+                    patientCase.MaterializedSlice.ActiveTreatmentIntentIds.Add(patientCase.MaterializedSlice.Bindings[patientCase.MaterializedSlice.Bindings.Count - 1].IntentId);
+                }
             }
         }
 
@@ -1739,6 +1966,10 @@ namespace ProjectHospital.AutoLabBalancer
                     DepartmentId = patientCase.ActiveDepartmentId,
                     Description = "lab"
                 });
+                if (!string.IsNullOrEmpty(patientCase.MaterializedSlice.Bindings[patientCase.MaterializedSlice.Bindings.Count - 1].IntentId))
+                {
+                    patientCase.MaterializedSlice.ActiveLabIntentIds.Add(patientCase.MaterializedSlice.Bindings[patientCase.MaterializedSlice.Bindings.Count - 1].IntentId);
+                }
             }
         }
 
@@ -1807,11 +2038,25 @@ namespace ProjectHospital.AutoLabBalancer
 
             patientCase.CompatibilityProjection.ProjectedClusterId = activeCluster == null ? null : activeCluster.ClusterId;
             patientCase.CompatibilityProjection.ProjectedDepartmentId = projectedDepartmentId;
+            patientCase.CompatibilityProjection.ProjectedHazard = "-";
+            patientCase.CompatibilityProjection.ProjectedDiagnosisState = "-";
+            patientCase.CompatibilityProjection.ProjectedSymptomIds.Clear();
             patientCase.CompatibilityProjection.Reason = reason;
             patientCase.CompatibilityProjection.UpdatedAtHours = GetCaseClockHours();
             patientCase.CompatibilityProjection.ProjectedDiagnosisId = patientCase.MaterializedSlice.VisibleProblemIds.Count > 0
                 ? patientCase.MaterializedSlice.VisibleProblemIds[0]
                 : null;
+            patientCase.CompatibilityProjection.BlocksVanillaDischarge = patientCase.Disposition != null && patientCase.Disposition.Mode != CaseDispositionMode.LeaveHospital;
+            var projectedDiagnosis = FindDiagnosisByProblemId(patientCase, patientCase.CompatibilityProjection.ProjectedDiagnosisId);
+            if (projectedDiagnosis != null)
+            {
+                patientCase.CompatibilityProjection.ProjectedDiagnosisState = projectedDiagnosis.Status.ToString();
+                patientCase.CompatibilityProjection.ProjectedHazard = projectedDiagnosis.Hazard;
+                for (var i = 0; i < projectedDiagnosis.KnownSymptomIds.Count; i++)
+                {
+                    patientCase.CompatibilityProjection.ProjectedSymptomIds.Add(projectedDiagnosis.KnownSymptomIds[i]);
+                }
+            }
         }
 
         private static string BuildMaterializedSliceFingerprint(BehaviorPatient patient, PatientCase patientCase, CareCluster activeCluster, CaseCheckpoint checkpoint, string reason)
@@ -1821,18 +2066,18 @@ namespace ProjectHospital.AutoLabBalancer
             builder.Append(activeCluster == null ? "-" : activeCluster.ClusterId).Append("|")
                 .Append(patientCase == null ? "-" : patientCase.ActiveDepartmentId).Append("|")
                 .Append(queueState == null ? "-" : queueState.ActiveExaminationId).Append("|")
-                .Append(queueState == null ? 0 : queueState.PlannedExaminationIds.Count).Append("|")
-                .Append(queueState == null ? 0 : queueState.PlannedTreatmentIds.Count).Append("|")
-                .Append(queueState == null ? 0 : queueState.ActiveTreatmentIds.Count).Append("|")
-                .Append(queueState == null ? 0 : queueState.LabProcedureIds.Count).Append("|")
-                .Append(checkpoint).Append("|")
-                .Append(reason ?? string.Empty);
+                .Append(queueState == null ? "-" : FormatTraceList(queueState.PlannedExaminationIds)).Append("|")
+                .Append(queueState == null ? "-" : FormatTraceList(queueState.PlannedTreatmentIds)).Append("|")
+                .Append(queueState == null ? "-" : FormatTraceList(queueState.ActiveTreatmentIds)).Append("|")
+                .Append(queueState == null ? "-" : FormatTraceList(queueState.LabProcedureIds)).Append("|")
+                .Append(patientCase == null || patientCase.Disposition == null ? "-" : patientCase.Disposition.Mode.ToString()).Append("|")
+                .Append(patientCase == null || patientCase.MaterializedSlice == null || !patientCase.MaterializedSlice.WaitingTransferCommit ? "-" : patientCase.MaterializedSlice.PendingTargetDepartmentId);
             return builder.ToString();
         }
 
         private static void OnMaterializedSliceVersionChanged(BehaviorPatient patient, PatientCase patientCase, CaseCheckpoint checkpoint, string reason)
         {
-            patientCase.DirtyFlags &= ~(CaseDirtyFlags.Materialization | CaseDirtyFlags.Ui);
+            patientCase.DirtyFlags &= ~(CaseDirtyFlags.Materialization | CaseDirtyFlags.Ui | CaseDirtyFlags.Routing | CaseDirtyFlags.Disposition);
             SchedulingEngineService.InvalidateForMaterializedSliceChange(patient);
             PerformanceOptimizationService.InvalidateForMaterializedSliceChange(patient);
             TraceLoggingService.LogPatientAction(patient, "OnMaterializedSliceVersionChanged", "version=" + patientCase.MaterializedSlice.Version, "checkpoint=" + checkpoint + ";reason=" + reason);
@@ -1917,8 +2162,6 @@ namespace ProjectHospital.AutoLabBalancer
             {
                 return 0;
             }
-
-            EnsureRuntimeModel(patient, patientCase, CaseCheckpoint.DiagnosticEvent, source);
             var eventId = BuildDiagnosticEventId(patient, kind, subjectId, source);
             if (HasProcessedDiagnosticEvent(patientCase, eventId))
             {
@@ -1944,9 +2187,8 @@ namespace ProjectHospital.AutoLabBalancer
             AppendDiagnosticEvent(patientCase, eventId, kind, subjectId, source);
             if (revealed > 0)
             {
-                patientCase.DirtyFlags |= CaseDirtyFlags.Evidence | CaseDirtyFlags.Routing | CaseDirtyFlags.Disposition | CaseDirtyFlags.Timeline | CaseDirtyFlags.Ui;
+                MarkCaseDirty(patientCase, CaseDirtyFlags.Evidence | CaseDirtyFlags.Routing | CaseDirtyFlags.Materialization | CaseDirtyFlags.Disposition | CaseDirtyFlags.Timeline | CaseDirtyFlags.Ui);
                 AddTimeline(patientCase, BuildDiagnosticTimelineText(kind, subjectId, revealed));
-                EnsureRuntimeModel(patient, patientCase, CaseCheckpoint.DiagnosticEvent, source);
                 Save();
             }
 
@@ -2740,7 +2982,8 @@ namespace ProjectHospital.AutoLabBalancer
 
             if (changed)
             {
-                EnsureRuntimeModel(patient, patientCase, CaseCheckpoint.Monitoring, "monitoring_sync");
+                MarkCaseDirty(patientCase, CaseDirtyFlags.Evidence | CaseDirtyFlags.Routing | CaseDirtyFlags.Materialization | CaseDirtyFlags.Disposition | CaseDirtyFlags.Ui);
+                ReconcileCaseAtCheckpoint(patient, CaseCheckpoint.Monitoring, "monitoring_sync");
                 Save();
             }
         }
@@ -3296,6 +3539,14 @@ namespace ProjectHospital.AutoLabBalancer
                 return;
             }
 
+            for (var i = 0; i < patientCase.Diagnoses.Count; i++)
+            {
+                if (patientCase.Diagnoses[i] != null && !IsTerminalStatus(patientCase.Diagnoses[i].Status))
+                {
+                    patientCase.Diagnoses[i].Status = CaseDiagnosisStatus.ReferredOut;
+                }
+            }
+
             patientCase.Complete = true;
             AddTimeline(patientCase, "Case referred to another hospital: " + reason + ".");
             Save();
@@ -3511,29 +3762,12 @@ namespace ProjectHospital.AutoLabBalancer
                 }
             }
 
-            var sameVisitContinuationScheduled = TryContinueSameDepartmentOfficeDiagnostics(patient, patientCase, activeDepartmentId, diagnosedId);
-
             if (changed)
             {
-                if (sameVisitContinuationScheduled)
-                {
-                    ClearPendingDiagnosticFocus(patient);
-                }
-                else if (HasUndiagnosedDiagnosisInDepartment(patientCase, activeDepartmentId, diagnosedId))
-                {
-                    QueueDiagnosticFocusAdvanceWithinDepartment(patient, patientCase);
-                }
-                else
-                {
-                    ClearPendingDiagnosticFocus(patient);
-                }
-
+                MarkCaseDirty(patientCase, CaseDirtyFlags.Evidence | CaseDirtyFlags.Routing | CaseDirtyFlags.Materialization | CaseDirtyFlags.Disposition | CaseDirtyFlags.Ui);
+                ClearPendingDiagnosticFocus(patient);
                 AddTimeline(patientCase, string.IsNullOrEmpty(diagnosedId) ? "Diagnosis attempt updated case suspicion." : "Diagnosis updated by doctor.");
-                Save();
-            }
-            else if (sameVisitContinuationScheduled)
-            {
-                AddTimeline(patientCase, "Same-visit diagnostic continuation scheduled in current office.");
+                ReconcileCaseAtCheckpoint(patient, CaseCheckpoint.SelectNextProcedure, "mark_diagnosed");
                 Save();
             }
         }
@@ -3558,34 +3792,10 @@ namespace ProjectHospital.AutoLabBalancer
 
             try
             {
-                var procedure = patient.GetComponent<ProcedureComponent>();
-                if (procedure == null || procedure.m_state == null || procedure.m_state.m_procedureQueue == null)
-                {
-                    return;
-                }
-
-                if (procedure.m_state.m_procedureQueue.m_plannedExaminationStates.Count > 0
-                    || procedure.m_state.m_procedureQueue.m_labProcedures.Count > 0)
-                {
-                    return;
-                }
-
-                var trySchedule = AccessTools.Method(typeof(BehaviorPatient), "TryToScheduleExamination", new[] { typeof(bool) });
-                var scheduled = trySchedule != null && Equals(trySchedule.Invoke(patient, new object[] { true }), true);
-                if (!scheduled)
-                {
-                    scheduled = TryScheduleCaseAwareExamination(patient);
-                }
-
-                if (scheduled)
-                {
-                    var currentCase = GetCase(patient);
-                    if (currentCase != null)
-                    {
-                        AddTimeline(currentCase, "Complicated diagnosis recovered by scheduling another examination.");
-                        Save();
-                    }
-                }
+                MarkCaseDirty(patientCase, CaseDirtyFlags.Routing | CaseDirtyFlags.Materialization | CaseDirtyFlags.Ui);
+                ReconcileCaseAtCheckpoint(patient, CaseCheckpoint.TryScheduleExamination, "complicated_diagnosis");
+                AddTimeline(patientCase, "Complicated diagnosis handed off to case-wide reconciliation.");
+                Save();
             }
             catch (Exception ex)
             {
@@ -3656,29 +3866,12 @@ namespace ProjectHospital.AutoLabBalancer
                 PendingDiagnosticFocuses.Remove(entity.GetEntityID());
                 return;
             }
-
-            if (!TryAdvanceDiagnosticFocusWithinDepartment(patient, patientCase, pending.DepartmentId))
-            {
-                TraceLoggingService.LogPatientAction(
-                    patient,
-                    "ProcessPendingDiagnosticFocus",
-                    "failed",
-                    BuildTraceDecisionContext(patient, patientCase)
-                    + ";pending_department=" + pending.DepartmentId
-                    + ";reason=advance_failed_trying_resume_or_referral");
-                PendingDiagnosticFocuses.Remove(entity.GetEntityID());
-                if (!TryResumeOrReferAfterFailedDiagnosticAdvance(patient))
-                {
-                    TryResumeCaseProcedureSelection(patient);
-                }
-
-                return;
-            }
-
+            MarkCaseDirty(patientCase, CaseDirtyFlags.Routing | CaseDirtyFlags.Materialization | CaseDirtyFlags.Ui);
+            ReconcileCaseAtCheckpoint(patient, CaseCheckpoint.SelectNextProcedure, "pending_diagnostic_focus");
             TraceLoggingService.LogPatientAction(
                 patient,
                 "ProcessPendingDiagnosticFocus",
-                "advanced",
+                "reconciled",
                 BuildTraceDecisionContext(patient, patientCase)
                 + ";pending_department=" + pending.DepartmentId);
             PendingDiagnosticFocuses.Remove(entity.GetEntityID());
@@ -3718,50 +3911,9 @@ namespace ProjectHospital.AutoLabBalancer
             }
 
             var patientCase = GetCase(patient);
-            var focusDiagnosis = GetCurrentDiagnosticFocusDiagnosis(patient, patientCase);
-            var focusCondition = focusDiagnosis == null ? null : ResolveDiagnosis(focusDiagnosis.DiagnosisId);
-            if (focusDiagnosis != null && focusCondition != null && HasAvailableDiagnosticWorkForDiagnosis(patient, procedure, queue, focusDiagnosis, focusCondition))
-            {
-                if (patient.m_state.m_doctor == null)
-                {
-                    TraceLoggingService.LogRateLimitedPatientEvent(
-                        patient,
-                        "ACTION",
-                        "event=action;method=RecoverStalledDoctorHandoff;outcome=waiting_for_doctor_assignment;details="
-                        + BuildTraceDecisionContext(patient, patientCase)
-                        + ";focus_diagnosis=" + focusDiagnosis.DiagnosisId,
-                        1.0f);
-                    var checkDoctor = AccessTools.Method(typeof(BehaviorPatient), "CheckDoctorForDiagnosis", Type.EmptyTypes);
-                    if (checkDoctor != null)
-                    {
-                        checkDoctor.Invoke(patient, null);
-                    }
-                }
-                else
-                {
-                    var doctorEntity = patient.m_state.m_doctor.CheckEntity() ? patient.m_state.m_doctor.GetEntity() : null;
-                    var doctor = doctorEntity == null ? null : doctorEntity.GetComponent<BehaviorDoctor>();
-                    if (doctor != null && doctor.IsFree())
-                    {
-                        TraceLoggingService.LogPatientAnomaly(
-                            patient,
-                            "patient_waiting_doctor_but_doctor_idle",
-                            BuildTraceDecisionContext(patient, patientCase)
-                            + ";doctor_id=" + doctorEntity.GetEntityID().ToString(CultureInfo.InvariantCulture)
-                            + ";focus_diagnosis=" + focusDiagnosis.DiagnosisId);
-                    }
-                }
-
-                return;
-            }
-
-            if (TryResumeOrReferAfterFailedDiagnosticAdvance(patient))
-            {
-                TraceLoggingService.LogPatientAction(patient, "RecoverStalledDoctorHandoff", "recovered", BuildTraceDecisionContext(patient, patientCase));
-                return;
-            }
-
-            TraceLoggingService.LogPatientAction(patient, "RecoverStalledDoctorHandoff", "failed", BuildTraceDecisionContext(patient, patientCase) + ";reason=no_focus_work_and_no_recovery_route");
+            MarkCaseDirty(patientCase, CaseDirtyFlags.Routing | CaseDirtyFlags.Materialization | CaseDirtyFlags.Ui);
+            ReconcileCaseAtCheckpoint(patient, CaseCheckpoint.SelectNextProcedure, "recover_stalled_handoff");
+            TraceLoggingService.LogPatientAction(patient, "RecoverStalledDoctorHandoff", "reconciled", BuildTraceDecisionContext(patient, patientCase));
         }
 
         private static bool TryResumeOrReferAfterFailedDiagnosticAdvance(BehaviorPatient patient)
@@ -3772,35 +3924,24 @@ namespace ProjectHospital.AutoLabBalancer
                 return false;
             }
 
-            if (!CanRetryBlockedCaseRecovery(patient))
+            var patientCase = GetCase(patient);
+            if (patientCase == null || patientCase.Complete)
             {
-                TraceLoggingService.LogPatientAction(patient, "TryResumeOrReferAfterFailedDiagnosticAdvance", "failed", "reason=recovery_cooldown_active");
                 return false;
             }
 
-            var patientCase = GetCase(patient);
-            var hasTreatmentOrProgress = HasCaseAvailableTreatmentOrProgress(patient);
-            if (hasTreatmentOrProgress)
-            {
-                TryResumeCaseProcedureSelection(patient);
-                TraceLoggingService.LogPatientAction(patient, "TryResumeOrReferAfterFailedDiagnosticAdvance", "recovered", BuildTraceDecisionContext(patient, patientCase) + ";recovery_step=resume_vanilla_procedure_selection");
-                return true;
-            }
-
-            if (TryAdvanceCaseTransferOrHospitalization(patient, "failed_diagnostic_advance"))
-            {
-                TraceLoggingService.LogPatientAction(patient, "TryResumeOrReferAfterFailedDiagnosticAdvance", "transferred", BuildTraceDecisionContext(patient, patientCase) + ";recovery_step=transfer_or_hospitalization");
-                return true;
-            }
-
-            if (TryResumeTreatableDiagnosedCase(patient))
-            {
-                TraceLoggingService.LogPatientAction(patient, "TryResumeOrReferAfterFailedDiagnosticAdvance", "scheduled", BuildTraceDecisionContext(patient, patientCase) + ";recovery_step=resume_treatable_diagnosed_case");
-                return true;
-            }
-
-            TraceLoggingService.LogPatientAction(patient, "TryResumeOrReferAfterFailedDiagnosticAdvance", "fallback_referral", BuildTraceDecisionContext(patient, patientCase) + ";recovery_step=referral");
-            return TryReferBlockedCase(patient, "TryResumeOrReferAfterFailedDiagnosticAdvance", "no further case work after failed diagnostic advance");
+            MarkCaseDirty(patientCase, CaseDirtyFlags.Routing | CaseDirtyFlags.Materialization | CaseDirtyFlags.Ui);
+            ReconcileCaseAtCheckpoint(patient, CaseCheckpoint.SelectNextProcedure, "failed_diagnostic_advance");
+            var procedure = patient.GetComponent<ProcedureComponent>();
+            var queue = procedure == null || procedure.m_state == null ? null : procedure.m_state.m_procedureQueue;
+            var resumed = queue != null
+                && (queue.m_activeExamination != null
+                    || queue.m_plannedExaminationStates.Count > 0
+                    || queue.m_labProcedures.Count > 0
+                    || queue.m_activeTreatmentStates.Count > 0
+                    || queue.m_plannedTreatmentStates.Count > 0);
+            TraceLoggingService.LogPatientAction(patient, "TryResumeOrReferAfterFailedDiagnosticAdvance", resumed ? "reconciled" : "failed", BuildTraceDecisionContext(patient, patientCase));
+            return resumed;
         }
 
         private static void ClearPendingDiagnosticFocus(BehaviorPatient patient)
@@ -3826,18 +3967,23 @@ namespace ProjectHospital.AutoLabBalancer
                 return false;
             }
 
-            if (TryScheduleCaseAwareExamination(patient))
-            {
-                return true;
-            }
-
-            if (TryAdvanceCaseTransferOrHospitalization(patient, "diagnosis_continuation"))
+            var patientCase = GetCase(patient);
+            MarkCaseDirty(patientCase, CaseDirtyFlags.Routing | CaseDirtyFlags.Materialization | CaseDirtyFlags.Ui);
+            ReconcileCaseAtCheckpoint(patient, CaseCheckpoint.SelectNextProcedure, "diagnosis_continuation");
+            var procedure = patient.GetComponent<ProcedureComponent>();
+            var queue = procedure == null || procedure.m_state == null ? null : procedure.m_state.m_procedureQueue;
+            var continued = queue != null
+                && (queue.m_activeExamination != null
+                    || queue.m_plannedExaminationStates.Count > 0
+                    || queue.m_labProcedures.Count > 0
+                    || queue.m_activeTreatmentStates.Count > 0
+                    || queue.m_plannedTreatmentStates.Count > 0);
+            if (continued)
             {
                 MuteCaseProgressNotifications(patient, 6f);
-                return true;
             }
 
-            return false;
+            return continued;
         }
 
         public static bool ShouldSkipVanillaDiagnosisPanel(GLib.Entity patientEntity)
@@ -3883,6 +4029,8 @@ namespace ProjectHospital.AutoLabBalancer
                             PersistMirroredSymptoms(patientCase);
                         }
 
+                        ReconcileCaseAtCheckpoint(patient, CaseCheckpoint.DiagnosticEvent, "interview_event");
+
                         return;
                     }
                 }
@@ -3894,6 +4042,8 @@ namespace ProjectHospital.AutoLabBalancer
                 {
                     PersistMirroredSymptoms(patientCase);
                 }
+
+                ReconcileCaseAtCheckpoint(patient, CaseCheckpoint.DiagnosticEvent, "last_examination_event");
             }
             catch (Exception ex)
             {
@@ -3947,10 +4097,13 @@ namespace ProjectHospital.AutoLabBalancer
 
             if (revealed <= 0)
             {
+                ReconcileCaseAtCheckpoint(patient, CaseCheckpoint.DiagnosticEvent, "examination_event_no_additional_reveal");
                 return;
             }
 
             AddTimeline(patientCase, revealed + " case symptom(s) revealed by examination.");
+            MarkCaseDirty(patientCase, CaseDirtyFlags.Evidence | CaseDirtyFlags.Routing | CaseDirtyFlags.Materialization | CaseDirtyFlags.Disposition | CaseDirtyFlags.Timeline | CaseDirtyFlags.Ui);
+            ReconcileCaseAtCheckpoint(patient, CaseCheckpoint.DiagnosticEvent, "examination_event");
             Save();
         }
 
@@ -4115,6 +4268,12 @@ namespace ProjectHospital.AutoLabBalancer
                 return;
             }
 
+            if (!IsMaterializationWriteActive())
+            {
+                MarkCaseDirty(patientCase, CaseDirtyFlags.Materialization | CaseDirtyFlags.Ui);
+                return;
+            }
+
             var currentDepartmentId = patient.GetDepartment().GetDepartmentType().DatabaseID.ToString();
             if (ShouldDelaySameDepartmentTreatments(patient, patientCase, currentDepartmentId, allowCriticalOverride: onlyCritical))
             {
@@ -4194,15 +4353,8 @@ namespace ProjectHospital.AutoLabBalancer
             {
                 return false;
             }
-
-            var procedure = patient.GetComponent<ProcedureComponent>();
-            var queue = procedure == null || procedure.m_state == null ? null : procedure.m_state.m_procedureQueue;
-            if (queue != null && (queue.m_plannedExaminationStates.Count > 0 || queue.m_labProcedures.Count > 0))
-            {
-                return true;
-            }
-
-            patient.TryToScheduleExamination();
+            MarkCaseDirty(patientCase, CaseDirtyFlags.Routing | CaseDirtyFlags.Materialization | CaseDirtyFlags.Ui);
+            ReconcileCaseAtCheckpoint(patient, CaseCheckpoint.TryScheduleExamination, "treatment_gate_diagnostic_sweep");
             return true;
         }
 
@@ -4567,7 +4719,7 @@ namespace ProjectHospital.AutoLabBalancer
                     }
                 }
 
-                if ((diagnosis.Status == CaseDiagnosisStatus.Diagnosed || diagnosis.Status == CaseDiagnosisStatus.Active)
+                if ((IsConfirmedStatus(diagnosis.Status) || diagnosis.Status == CaseDiagnosisStatus.Confirmable)
                     && !HasUnknownSymptoms(diagnosis)
                     && AreKnownSymptomsTreated(diagnosis))
                 {
@@ -4592,7 +4744,7 @@ namespace ProjectHospital.AutoLabBalancer
 
         private static void PromoteDiagnosisAfterReveal(PatientCase patientCase, CaseDiagnosis diagnosis, GameDBMedicalCondition condition)
         {
-            if (patientCase == null || diagnosis == null || condition == null || diagnosis.Status == CaseDiagnosisStatus.Treated)
+            if (patientCase == null || diagnosis == null || condition == null || IsTerminalStatus(diagnosis.Status))
             {
                 return;
             }
@@ -4601,12 +4753,20 @@ namespace ProjectHospital.AutoLabBalancer
             var mainSymptomId = mainSymptom == null ? null : mainSymptom.DatabaseID.ToString();
             if (string.IsNullOrEmpty(mainSymptomId) || !diagnosis.KnownSymptomIds.Contains(mainSymptomId))
             {
+                if (diagnosis.Status == CaseDiagnosisStatus.Hidden)
+                {
+                    diagnosis.Status = CaseDiagnosisStatus.Observed;
+                }
                 return;
             }
 
-            if (diagnosis.Status == CaseDiagnosisStatus.Hidden)
+            if (diagnosis.Status == CaseDiagnosisStatus.Hidden || diagnosis.Status == CaseDiagnosisStatus.Observed)
             {
                 diagnosis.Status = CaseDiagnosisStatus.Suspected;
+            }
+            else if (diagnosis.Certainty >= 0.65f && diagnosis.Status == CaseDiagnosisStatus.Suspected)
+            {
+                diagnosis.Status = CaseDiagnosisStatus.Confirmable;
             }
         }
 
@@ -6717,6 +6877,15 @@ namespace ProjectHospital.AutoLabBalancer
 
         private static bool TryScheduleCaseAwareTreatment(BehaviorPatient patient)
         {
+            if (!IsMaterializationWriteActive() && IsRewriteOwned(patient))
+            {
+                ReconcileCaseAtCheckpoint(patient, CaseCheckpoint.SelectNextProcedure, "schedule_treatment_request");
+                var procedureAfter = patient == null ? null : patient.GetComponent<ProcedureComponent>();
+                var queueAfter = procedureAfter == null || procedureAfter.m_state == null ? null : procedureAfter.m_state.m_procedureQueue;
+                return queueAfter != null
+                    && (queueAfter.m_activeTreatmentStates.Count > 0 || queueAfter.m_plannedTreatmentStates.Count > 0);
+            }
+
             if (!Enabled || patient == null || patient.m_state == null)
             {
                 TraceLoggingService.LogPatientAction(patient, "TryScheduleCaseAwareTreatment", "failed", "reason=missing_patient_state");
@@ -6767,6 +6936,14 @@ namespace ProjectHospital.AutoLabBalancer
         {
             if (patient == null || patient.m_state == null)
             {
+                return;
+            }
+
+            if (!IsMaterializationWriteActive() && IsRewriteOwned(patient))
+            {
+                var patientCase = GetCase(patient);
+                MarkCaseDirty(patientCase, CaseDirtyFlags.Routing | CaseDirtyFlags.Materialization | CaseDirtyFlags.Ui);
+                ReconcileCaseAtCheckpoint(patient, CaseCheckpoint.SelectNextProcedure, "resume_case_procedure_selection");
                 return;
             }
 
@@ -7534,94 +7711,35 @@ namespace ProjectHospital.AutoLabBalancer
             {
                 return true;
             }
-
-            var currentDepartmentId = patient.GetDepartment() == null || patient.GetDepartment().GetDepartmentType() == null
-                ? patientCase.ActiveDepartmentId
-                : patient.GetDepartment().GetDepartmentType().DatabaseID.ToString();
-            var currentPrimary = GetPrimaryDiagnosis(patient);
-            MarkDepartmentCheckpointResolved(patientCase, currentDepartmentId, currentPrimary == null ? null : currentPrimary.DatabaseID.ToString());
-
-            var nextDiagnosis = CaseCarePlanner.SelectNextDiagnosis(patientCase, currentDepartmentId);
-
-            if (nextDiagnosis == null)
+            MarkCaseDirty(patientCase, CaseDirtyFlags.Routing | CaseDirtyFlags.Materialization | CaseDirtyFlags.Disposition | CaseDirtyFlags.Ui);
+            ReconcileCaseAtCheckpoint(patient, CaseCheckpoint.LeaveGate, "pre_discharge");
+            switch (patientCase.Disposition.Mode)
             {
-                patientCase.Complete = true;
-                AddTimeline(patientCase, "Case completed; vanilla discharge allowed.");
-                Save();
-                return true;
-            }
+                case CaseDispositionMode.LeaveHospital:
+                    patientCase.Complete = true;
+                    AddTimeline(patientCase, "Case disposition allowed discharge.");
+                    Save();
+                    return true;
+                case CaseDispositionMode.TransferToClinic:
+                    if (!string.IsNullOrEmpty(patientCase.Disposition.TargetDepartmentId))
+                    {
+                        var targetDepartment = ResolveDepartment(patientCase.Disposition.TargetDepartmentId);
+                        if (targetDepartment != null && patient.GetDepartment() != targetDepartment)
+                        {
+                            patient.ChangeDepartment(targetDepartment, checkHospitalizationPlace: false);
+                            AddTimeline(patientCase, "Discharge intercepted; case transferred to " + patientCase.Disposition.TargetDepartmentId + ".");
+                            Save();
+                        }
+                    }
 
-            var nextCondition = ResolveDiagnosis(nextDiagnosis.DiagnosisId);
-            if (nextCondition == null)
-            {
-                AddTimeline(patientCase, "Next diagnosis missing from database; discharge blocked by case guard.");
-                Save();
-                return false;
-            }
-
-            var routeDecision = EvaluateCaseTransferOrHospitalization(patient);
-            if (routeDecision != null && routeDecision.RouteExists)
-            {
-                if (TryAdvanceCaseTransferOrHospitalization(patient, routeDecision, "pre_discharge"))
-                {
                     return false;
-                }
-
-                AddTimeline(
-                    patientCase,
-                    "Next case route unavailable before discharge: "
-                    + (string.IsNullOrEmpty(routeDecision.BlockerReason) ? "unknown" : routeDecision.BlockerReason)
-                    + ".");
-                Save();
-                return false;
-            }
-
-            var departmentType = nextCondition.DepartmentRef == null ? null : nextCondition.DepartmentRef.Entry;
-            var targetDepartment = departmentType == null || MapScriptInterface.Instance == null ? null : MapScriptInterface.Instance.GetDepartmentOfType(departmentType);
-            if (targetDepartment == null || targetDepartment.IsClosed())
-            {
-                AddTimeline(patientCase, "Next department unavailable; discharge blocked by case guard.");
-                Save();
-                return false;
-            }
-
-            try
-            {
-                PromoteDiagnosisForInvestigation(nextDiagnosis);
-                patient.SetMedicalCondition(nextCondition, false, 0);
-                RegisterCurrentMedicalCondition(patient, patientCase);
-                if (patient.GetDepartment() != targetDepartment)
-                {
-                    patient.ChangeDepartment(targetDepartment, checkHospitalizationPlace: false);
-                }
-
-                patientCase.ActiveDepartmentId = GetDepartmentId(nextCondition);
-                ActivateDepartmentCare(patientCase, patientCase.ActiveDepartmentId);
-                patientCase.RiskScore = CalculateRisk(patientCase);
-                AddTimeline(patientCase, "Advanced case care to department " + patientCase.ActiveDepartmentId + ".");
-                var selectNextProcedure = AccessTools.Method(typeof(BehaviorPatient), "SelectNextProcedure");
-                if (selectNextProcedure != null)
-                {
-                    try
-                    {
-                        selectNextProcedure.Invoke(patient, null);
-                    }
-                    catch (Exception selectEx)
-                    {
-                        AddTimeline(patientCase, "Case advanced; next procedure selection deferred to vanilla update.");
-                        Log("Case advanced but SelectNextProcedure failed: " + DescribeException(selectEx));
-                    }
-                }
-
-                Save();
-                return false;
-            }
-            catch (Exception ex)
-            {
-                AddTimeline(patientCase, "Failed to advance case; discharge blocked by case guard.");
-                Log("Failed to advance before discharge: " + DescribeException(ex));
-                Save();
-                return false;
+                case CaseDispositionMode.ReferOut:
+                    TryReferBlockedCase(patient, "pre_discharge", patientCase.Disposition.Reason);
+                    return false;
+                default:
+                    AddTimeline(patientCase, "Discharge blocked by case disposition: " + patientCase.Disposition.Reason);
+                    Save();
+                    return false;
             }
         }
 
@@ -9565,6 +9683,15 @@ namespace ProjectHospital.AutoLabBalancer
 
         internal static bool TryScheduleCaseAwareExamination(BehaviorPatient patient)
         {
+            if (!IsMaterializationWriteActive() && IsRewriteOwned(patient))
+            {
+                ReconcileCaseAtCheckpoint(patient, CaseCheckpoint.TryScheduleExamination, "schedule_examination_request");
+                var procedureAfter = patient == null ? null : patient.GetComponent<ProcedureComponent>();
+                var queueAfter = procedureAfter == null || procedureAfter.m_state == null ? null : procedureAfter.m_state.m_procedureQueue;
+                return queueAfter != null
+                    && (queueAfter.m_activeExamination != null || queueAfter.m_plannedExaminationStates.Count > 0 || queueAfter.m_labProcedures.Count > 0);
+            }
+
             if (!Enabled || patient == null || patient.m_state == null || Hospital.Instance == null || Hospital.Instance.m_state == null)
             {
                 TraceLoggingService.LogPatientAction(patient, "TryScheduleCaseAwareExamination", "failed", "reason=missing_runtime_state");
@@ -9661,32 +9788,10 @@ namespace ProjectHospital.AutoLabBalancer
             {
                 return;
             }
-
-            if (TryScheduleCaseAwareExamination(patient))
-            {
-                TraceLoggingService.LogPatientAction(patient, "RecoverBlockedCaseState", "recovered", BuildTraceDecisionContext(patient, GetCase(patient)) + ";recovery_step=examination");
-                return;
-            }
-
-            if (TryScheduleCaseAwareTreatment(patient))
-            {
-                TraceLoggingService.LogPatientAction(patient, "RecoverBlockedCaseState", "recovered", BuildTraceDecisionContext(patient, GetCase(patient)) + ";recovery_step=treatment");
-                return;
-            }
-
-            if (TryAdvanceCaseTransferOrHospitalization(patient, "blocked_recovery"))
-            {
-                TraceLoggingService.LogPatientAction(patient, "RecoverBlockedCaseState", "transferred", BuildTraceDecisionContext(patient, GetCase(patient)) + ";recovery_step=transfer_or_hospitalization");
-                return;
-            }
-
-            if (TryReferBlockedCase(patient, "RecoverBlockedCaseState", "blocked state with no exam/treatment/route"))
-            {
-                TraceLoggingService.LogPatientAction(patient, "RecoverBlockedCaseState", "referred", BuildTraceDecisionContext(patient, GetCase(patient)) + ";recovery_step=referral");
-                return;
-            }
-
-            TraceLoggingService.LogPatientAction(patient, "RecoverBlockedCaseState", "failed", BuildTraceDecisionContext(patient, GetCase(patient)) + ";recovery_step=referral_failed");
+            var patientCase = GetCase(patient);
+            MarkCaseDirty(patientCase, CaseDirtyFlags.Routing | CaseDirtyFlags.Materialization | CaseDirtyFlags.Ui);
+            ReconcileCaseAtCheckpoint(patient, CaseCheckpoint.SelectNextProcedure, "recover_blocked_case");
+            TraceLoggingService.LogPatientAction(patient, "RecoverBlockedCaseState", "reconciled", BuildTraceDecisionContext(patient, patientCase));
         }
 
         private static bool TryReferBlockedCase(BehaviorPatient patient, string initiator = null, string recoveryReason = null)
@@ -10537,14 +10642,22 @@ namespace ProjectHospital.AutoLabBalancer
         {
             switch (status)
             {
+                case CaseDiagnosisStatus.Observed:
+                    return "Observed";
                 case CaseDiagnosisStatus.Active:
                     return ModText.T("MedicalCaseStatusActive");
                 case CaseDiagnosisStatus.Suspected:
                     return ModText.T("MedicalCaseStatusSuspected");
+                case CaseDiagnosisStatus.Confirmable:
+                    return "Confirmable";
                 case CaseDiagnosisStatus.Diagnosed:
                     return ModText.T("MedicalCaseStatusDiagnosed");
+                case CaseDiagnosisStatus.Controlled:
+                    return "Controlled";
                 case CaseDiagnosisStatus.Treated:
                     return ModText.T("MedicalCaseStatusTreated");
+                case CaseDiagnosisStatus.ReferredOut:
+                    return "Referred";
                 default:
                     return ModText.T("MedicalCaseStatusHidden");
             }
@@ -11281,6 +11394,24 @@ namespace ProjectHospital.AutoLabBalancer
         }
     }
 
+    [HarmonyPatch(typeof(BehaviorPatient), "TryToStartScheduledExamination")]
+    internal static class MedicalCaseTryToStartScheduledExaminationPatch
+    {
+        private static void Prefix(BehaviorPatient __instance)
+        {
+            MedicalCaseRewriteService.OnTryStartScheduledExamination(__instance);
+        }
+    }
+
+    [HarmonyPatch(typeof(BehaviorPatient), "SelectNextProcedure")]
+    internal static class MedicalCaseSelectNextProcedurePatch
+    {
+        private static void Prefix(BehaviorPatient __instance)
+        {
+            MedicalCaseRewriteService.OnSelectNextProcedureGate(__instance);
+        }
+    }
+
     [HarmonyPatch(typeof(BehaviorPatient), "Update")]
     internal static class MedicalCasePatientUpdatePatch
     {
@@ -11940,6 +12071,15 @@ namespace ProjectHospital.AutoLabBalancer
         private static void Postfix(HospitalizationComponent __instance, ref bool __result)
         {
             __result = MedicalCaseRewriteService.ShouldHospitalizationBeOver(__instance, __result);
+        }
+    }
+
+    [HarmonyPatch(typeof(HospitalizationComponent), "SelectNextStep")]
+    internal static class MedicalCaseHospitalizationSelectNextStepPatch
+    {
+        private static void Prefix(HospitalizationComponent __instance)
+        {
+            MedicalCaseRewriteService.OnHospitalizationSelectNextStep(__instance);
         }
     }
 
