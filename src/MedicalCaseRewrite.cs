@@ -9691,95 +9691,117 @@ namespace ProjectHospital.AutoLabBalancer
 
         private static bool TryReferBlockedCase(BehaviorPatient patient, string initiator = null, string recoveryReason = null)
         {
-            var patientCase = GetCase(patient);
-            if (patient == null || patientCase == null || patientCase.Complete)
-            {
-                TraceLoggingService.LogPatientAction(patient, "TryReferBlockedCase", "failed", "reason=missing_case;" + (string.IsNullOrEmpty(initiator) ? string.Empty : "initiator=" + initiator));
-                return false;
-            }
-
-            var currentDepartmentId = GetCaseRuntimeDepartmentId(patient, patientCase);
-            var nextDiagnosis = CaseCarePlanner.SelectNextDiagnosis(patientCase, currentDepartmentId);
-            var nextProcedure = GetRepresentativeProcedure(nextDiagnosis);
-            var hasAvailableExamination = HasCaseAvailableExamination(patient);
-            var hasAvailableTreatmentOrProgress = HasCaseAvailableTreatmentOrProgress(patient);
-            var hasTransferOrHospitalizationRoute = HasCaseTransferOrHospitalizationRoute(patient);
-            var referralContext = BuildTraceDecisionContext(patient, patientCase)
-                + ";initiator=" + (string.IsNullOrEmpty(initiator) ? "-" : initiator)
-                + ";recovery_reason=" + (string.IsNullOrEmpty(recoveryReason) ? "-" : recoveryReason)
-                + ";next_diagnosis=" + FormatDiagnosisFocusTrace(nextDiagnosis)
-                + ";target_department=" + (nextDiagnosis == null || string.IsNullOrEmpty(nextDiagnosis.DepartmentId) ? "-" : nextDiagnosis.DepartmentId)
-                + ";representative_procedure=" + (nextProcedure == null ? "-" : nextProcedure.DatabaseID.ToString())
-                + ";HasCaseAvailableExamination=" + hasAvailableExamination
-                + ";HasCaseAvailableTreatmentOrProgress=" + hasAvailableTreatmentOrProgress
-                + ";HasCaseTransferOrHospitalizationRoute=" + hasTransferOrHospitalizationRoute;
-
-            string popupReason;
-            bool equipmentLike;
-            string referralReason;
             try
             {
-                referralReason = GetBlockedCaseReferralReason(patient, patientCase, out popupReason, out equipmentLike);
-            }
-            catch (Exception ex)
-            {
-                popupReason = null;
-                equipmentLike = false;
-                referralReason = null;
-                Log("Failed to build blocked-case referral reason: " + DescribeException(ex));
-            }
+                var patientCase = GetCase(patient);
+                if (patient == null || patient.m_state == null || patientCase == null || patientCase.Complete)
+                {
+                    TraceLoggingService.LogPatientAction(patient, "TryReferBlockedCase", "failed", "reason=missing_case;" + (string.IsNullOrEmpty(initiator) ? string.Empty : "initiator=" + initiator));
+                    return false;
+                }
 
-            if (string.IsNullOrEmpty(referralReason))
-            {
-                referralReason = BuildGenericBlockedCaseReferralReason(patient, patientCase, out popupReason, out equipmentLike);
+                EnsureRuntimeModel(patient, patientCase, CaseCheckpoint.RoutingGate, "blocked_case_referral");
+
+                var currentDepartmentId = GetCaseRuntimeDepartmentId(patient, patientCase);
+                var nextDiagnosis = CaseCarePlanner.SelectNextDiagnosis(patientCase, currentDepartmentId);
+                var nextProcedure = GetRepresentativeProcedure(nextDiagnosis);
+                var hasAvailableExamination = HasCaseAvailableExamination(patient);
+                var hasAvailableTreatmentOrProgress = HasCaseAvailableTreatmentOrProgress(patient);
+                var hasTransferOrHospitalizationRoute = HasCaseTransferOrHospitalizationRoute(patient);
+                var referralContext = BuildTraceDecisionContext(patient, patientCase)
+                    + ";initiator=" + (string.IsNullOrEmpty(initiator) ? "-" : initiator)
+                    + ";recovery_reason=" + (string.IsNullOrEmpty(recoveryReason) ? "-" : recoveryReason)
+                    + ";next_diagnosis=" + FormatDiagnosisFocusTrace(nextDiagnosis)
+                    + ";target_department=" + (nextDiagnosis == null || string.IsNullOrEmpty(nextDiagnosis.DepartmentId) ? "-" : nextDiagnosis.DepartmentId)
+                    + ";representative_procedure=" + (nextProcedure == null ? "-" : nextProcedure.DatabaseID.ToString())
+                    + ";HasCaseAvailableExamination=" + hasAvailableExamination
+                    + ";HasCaseAvailableTreatmentOrProgress=" + hasAvailableTreatmentOrProgress
+                    + ";HasCaseTransferOrHospitalizationRoute=" + hasTransferOrHospitalizationRoute;
+
+                string popupReason;
+                bool equipmentLike;
+                string referralReason;
+                try
+                {
+                    referralReason = GetBlockedCaseReferralReason(patient, patientCase, out popupReason, out equipmentLike);
+                }
+                catch (Exception ex)
+                {
+                    popupReason = null;
+                    equipmentLike = false;
+                    referralReason = null;
+                    Log("Failed to build blocked-case referral reason: " + DescribeException(ex));
+                }
+
                 if (string.IsNullOrEmpty(referralReason))
                 {
+                    referralReason = BuildGenericBlockedCaseReferralReason(patient, patientCase, out popupReason, out equipmentLike);
+                    if (string.IsNullOrEmpty(referralReason))
+                    {
+                        RememberBlockedCaseRetry(patient, 1.5f);
+                        TraceLoggingService.LogPatientAction(
+                            patient,
+                            "TryReferBlockedCase",
+                            "failed",
+                            referralContext
+                            + ";reason=no_referral_reason_available");
+                        return false;
+                    }
+                }
+
+                var referred = EquipmentReferralService.TryReferCaseBlockedPatient(patient, referralReason, equipmentLike);
+                if (!referred)
+                {
+                    referred = TryForceCaseBlockedReferral(patient, referralReason, equipmentLike);
+                }
+
+                if (!referred)
+                {
+                    MuteCaseProgressNotifications(patient, 2f);
                     RememberBlockedCaseRetry(patient, 1.5f);
                     TraceLoggingService.LogPatientAction(
                         patient,
                         "TryReferBlockedCase",
                         "failed",
                         referralContext
-                        + ";reason=no_referral_reason_available");
+                        + ";referral_reason=" + (string.IsNullOrEmpty(referralReason) ? "-" : referralReason)
+                        + ";popup_reason=" + (string.IsNullOrEmpty(popupReason) ? "-" : popupReason)
+                        + ";equipment_like=" + equipmentLike
+                        + ";mute_applied=true");
                     return false;
                 }
-            }
 
-            var referred = EquipmentReferralService.TryReferCaseBlockedPatient(patient, referralReason, equipmentLike);
-            if (!referred)
-            {
-                referred = TryForceCaseBlockedReferral(patient, referralReason, equipmentLike);
-            }
-
-            if (!referred)
-            {
-                MuteCaseProgressNotifications(patient, 2f);
-                RememberBlockedCaseRetry(patient, 1.5f);
+                ClearBlockedCaseRetry(patient);
+                QueueReferralPopup(
+                    string.IsNullOrEmpty(patientCase.PatientName) ? "Patient" : patientCase.PatientName,
+                    popupReason);
+                MuteCaseProgressNotifications(patient, 8f);
                 TraceLoggingService.LogPatientAction(
                     patient,
                     "TryReferBlockedCase",
-                    "failed",
+                    "referred",
                     referralContext
                     + ";referral_reason=" + (string.IsNullOrEmpty(referralReason) ? "-" : referralReason)
                     + ";popup_reason=" + (string.IsNullOrEmpty(popupReason) ? "-" : popupReason)
                     + ";equipment_like=" + equipmentLike
                     + ";mute_applied=true");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                RememberBlockedCaseRetry(patient, 2f);
+                Log("TryReferBlockedCase crashed: " + DescribeException(ex)
+                    + "; initiator=" + (string.IsNullOrEmpty(initiator) ? "-" : initiator)
+                    + "; recoveryReason=" + (string.IsNullOrEmpty(recoveryReason) ? "-" : recoveryReason));
+                TraceLoggingService.LogPatientAction(
+                    patient,
+                    "TryReferBlockedCase",
+                    "failed",
+                    "reason=exception;initiator=" + (string.IsNullOrEmpty(initiator) ? "-" : initiator)
+                    + ";recovery_reason=" + (string.IsNullOrEmpty(recoveryReason) ? "-" : recoveryReason)
+                    + ";exception=" + NormalizeCaseTraceValue(ex.GetType().Name));
                 return false;
             }
-
-            ClearBlockedCaseRetry(patient);
-            QueueReferralPopup(patientCase.PatientName, popupReason);
-            MuteCaseProgressNotifications(patient, 8f);
-            TraceLoggingService.LogPatientAction(
-                patient,
-                "TryReferBlockedCase",
-                "referred",
-                referralContext
-                + ";referral_reason=" + (string.IsNullOrEmpty(referralReason) ? "-" : referralReason)
-                + ";popup_reason=" + (string.IsNullOrEmpty(popupReason) ? "-" : popupReason)
-                + ";equipment_like=" + equipmentLike
-                + ";mute_applied=true");
-            return true;
         }
 
         private static bool TryBuildBlockedCaseRouteReferralReason(
