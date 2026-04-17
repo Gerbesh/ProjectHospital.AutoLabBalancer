@@ -394,7 +394,6 @@ namespace ProjectHospital.AutoLabBalancer
         public readonly DispositionState Disposition = new DispositionState();
         public CaseDirtyFlags DirtyFlags = CaseDirtyFlags.None;
         public int ProblemTrackCap = 15;
-        public readonly List<CaseTimelineEvent> Timeline = new List<CaseTimelineEvent>();
         public bool RequiresRuntimeImport = true;
     }
 
@@ -592,13 +591,6 @@ namespace ProjectHospital.AutoLabBalancer
         }
     }
 
-    internal sealed class CaseTimelineEvent
-    {
-        public int Day;
-        public float Hour;
-        public string Text;
-    }
-
     internal static class MedicalCaseRewriteService
     {
         private sealed class DiagnosisPanelItemSnapshot
@@ -700,6 +692,8 @@ namespace ProjectHospital.AutoLabBalancer
         private const string CaseStorageVersion = "2";
         private static BehaviorPatient SelectedPatient;
         private static int MaterializationWriteDepth;
+        [ThreadStatic]
+        private static bool DiagnosePassthroughActive;
 
         public static bool Enabled
         {
@@ -803,6 +797,15 @@ namespace ProjectHospital.AutoLabBalancer
                 || checkpoint == CaseCheckpoint.NurseCheck
                 || checkpoint == CaseCheckpoint.HospitalizationGate
                 || checkpoint == CaseCheckpoint.RoutingGate;
+        }
+
+        private static bool IsSafeRehydrationCheckpoint(CaseCheckpoint checkpoint)
+        {
+            return checkpoint == CaseCheckpoint.RoutingGate
+                || checkpoint == CaseCheckpoint.HospitalizationGate
+                || checkpoint == CaseCheckpoint.ChangeDepartmentCommit
+                || checkpoint == CaseCheckpoint.NurseCheck
+                || checkpoint == CaseCheckpoint.LeaveGate;
         }
 
         public static bool IsRewriteOwned(BehaviorPatient patient)
@@ -1330,9 +1333,19 @@ namespace ProjectHospital.AutoLabBalancer
             }
 
             EnsureRuntimeModel(patient, patientCase, checkpoint, reason);
+            if (patientCase.RequiresRuntimeImport && !IsSafeRehydrationCheckpoint(checkpoint))
+            {
+                return;
+            }
+
             if (MaterializeCaseExecution(patient, patientCase, checkpoint, reason))
             {
                 EnsureRuntimeModel(patient, patientCase, checkpoint, reason + "_post_materialize");
+            }
+
+            if (patientCase.RequiresRuntimeImport && IsSafeRehydrationCheckpoint(checkpoint))
+            {
+                patientCase.RequiresRuntimeImport = false;
             }
 
             patientCase.DirtyFlags = CaseDirtyFlags.None;
@@ -1341,6 +1354,11 @@ namespace ProjectHospital.AutoLabBalancer
         private static bool MaterializeCaseExecution(BehaviorPatient patient, PatientCase patientCase, CaseCheckpoint checkpoint, string reason)
         {
             if (patient == null || patientCase == null || patientCase.Complete)
+            {
+                return false;
+            }
+
+            if (patientCase.RequiresRuntimeImport && !IsSafeRehydrationCheckpoint(checkpoint))
             {
                 return false;
             }
@@ -1950,7 +1968,6 @@ namespace ProjectHospital.AutoLabBalancer
                 });
             }
 
-            patientCase.RequiresRuntimeImport = false;
             UpdateCompatibilityProjection(patientCase, activeCluster, projectedDepartmentId, reason);
             var fingerprint = BuildMaterializedSliceFingerprint(patientCase);
             patientCase.MaterializedSlice.LastFingerprint = fingerprint;
@@ -4024,6 +4041,53 @@ namespace ProjectHospital.AutoLabBalancer
                 ReconcileCaseAtCheckpoint(patient, CaseCheckpoint.SelectNextProcedure, "mark_diagnosed");
                 Save();
             }
+        }
+
+        public static DiagnosisResult RunRewriteOwnedDiagnose(BehaviorPatient patient, int certaintyBonus, bool fromPlayer)
+        {
+            if (!Enabled || patient == null || DiagnosePassthroughActive)
+            {
+                return DiagnosisResult.NONE;
+            }
+
+            var patientCase = GetCase(patient);
+            if (patientCase == null || patientCase.Complete)
+            {
+                DiagnosePassthroughActive = true;
+                try
+                {
+                    return patient.Diagnose(certaintyBonus, fromPlayer);
+                }
+                finally
+                {
+                    DiagnosePassthroughActive = false;
+                }
+            }
+
+            DiagnosisResult result;
+            DiagnosePassthroughActive = true;
+            try
+            {
+                result = patient.Diagnose(certaintyBonus, fromPlayer);
+            }
+            finally
+            {
+                DiagnosePassthroughActive = false;
+            }
+
+            MarkDiagnosed(patient);
+            if (result == DiagnosisResult.COMPLICATED && TryResolveCaseDiagnosisContinuation(patient))
+            {
+                result = DiagnosisResult.NONE;
+            }
+
+            HandleDiagnosisResult(patient, result);
+            return result;
+        }
+
+        public static bool IsDiagnosePassthroughActive()
+        {
+            return DiagnosePassthroughActive;
         }
 
         public static void HandleDiagnosisResult(BehaviorPatient patient, DiagnosisResult result)
@@ -11216,12 +11280,6 @@ namespace ProjectHospital.AutoLabBalancer
         {
             var day = DayTime.Instance == null ? 0 : DayTime.Instance.GetDay();
             var hour = DayTime.Instance == null ? 0f : DayTime.Instance.GetDayTimeHours();
-            patientCase.Timeline.Add(new CaseTimelineEvent
-            {
-                Day = day,
-                Hour = hour,
-                Text = text
-            });
             patientCase.TimelineEntries.Add(new TimelineEntry
             {
                 Day = day,
@@ -11232,11 +11290,6 @@ namespace ProjectHospital.AutoLabBalancer
                 Reason = patientCase.Disposition == null ? string.Empty : patientCase.Disposition.Reason,
                 Text = text
             });
-            if (patientCase.Timeline.Count > MaxTimelineEntries)
-            {
-                patientCase.Timeline.RemoveAt(0);
-            }
-
             if (patientCase.TimelineEntries.Count > MaxTimelineEntries)
             {
                 patientCase.TimelineEntries.RemoveAt(0);
@@ -11412,24 +11465,29 @@ namespace ProjectHospital.AutoLabBalancer
 
                         current.ProcessedDiagnosticEventJournal.Add(entry);
                     }
-                    else if (line.StartsWith("EV|", StringComparison.Ordinal) && current != null)
+                    else if ((line.StartsWith("EV|", StringComparison.Ordinal) || line.StartsWith("TE|", StringComparison.Ordinal)) && current != null)
                     {
                         var parts = line.Split('|');
-                        if (parts.Length < 4)
+                        if (line.StartsWith("EV|", StringComparison.Ordinal))
                         {
+                            if (parts.Length < 4)
+                            {
+                                continue;
+                            }
+
+                            current.TimelineEntries.Add(new TimelineEntry
+                            {
+                                Day = int.Parse(parts[1], CultureInfo.InvariantCulture),
+                                Hour = float.Parse(parts[2], CultureInfo.InvariantCulture),
+                                Category = "case",
+                                ProblemId = null,
+                                ClusterId = null,
+                                Reason = string.Empty,
+                                Text = parts[3]
+                            });
                             continue;
                         }
 
-                        current.Timeline.Add(new CaseTimelineEvent
-                        {
-                            Day = int.Parse(parts[1], CultureInfo.InvariantCulture),
-                            Hour = float.Parse(parts[2], CultureInfo.InvariantCulture),
-                            Text = parts[3]
-                        });
-                    }
-                    else if (line.StartsWith("TE|", StringComparison.Ordinal) && current != null)
-                    {
-                        var parts = line.Split('|');
                         if (parts.Length < 8)
                         {
                             continue;
@@ -11619,12 +11677,6 @@ namespace ProjectHospital.AutoLabBalancer
                             + "|" + Sanitize(entry.SubjectId)
                             + "|" + Sanitize(entry.Source)
                             + "|" + entry.ProcessedAtHours.ToString(CultureInfo.InvariantCulture));
-                    }
-
-                    for (var i = 0; i < patientCase.Timeline.Count; i++)
-                    {
-                        var ev = patientCase.Timeline[i];
-                        lines.Add("EV|" + ev.Day + "|" + ev.Hour.ToString(CultureInfo.InvariantCulture) + "|" + Sanitize(ev.Text));
                     }
 
                     for (var i = 0; i < patientCase.TimelineEntries.Count; i++)
@@ -12160,20 +12212,20 @@ namespace ProjectHospital.AutoLabBalancer
     [HarmonyPatch(typeof(BehaviorPatient), "Diagnose")]
     internal static class MedicalCaseDiagnosePatch
     {
-        private static void Postfix(BehaviorPatient __instance, ref DiagnosisResult __result)
+        private static bool Prefix(BehaviorPatient __instance, int certaintyBonus, bool byPlayer, ref DiagnosisResult __result)
         {
-            MedicalCaseRewriteService.MarkDiagnosed(__instance);
-            if ((__result == DiagnosisResult.COMPLICATED
-                    || __result == DiagnosisResult.NONE)
-                && !MedicalCaseRewriteService.HasOpenCase(__instance))
+            if (!MedicalCaseRewriteService.Enabled || __instance == null)
             {
-                __result = DiagnosisResult.NONE;
+                return true;
             }
-            if (__result == DiagnosisResult.COMPLICATED && MedicalCaseRewriteService.TryResolveCaseDiagnosisContinuation(__instance))
+
+            if (!MedicalCaseRewriteService.HasCaseRecord(__instance) || MedicalCaseRewriteService.IsDiagnosePassthroughActive())
             {
-                __result = DiagnosisResult.NONE;
+                return true;
             }
-            MedicalCaseRewriteService.HandleDiagnosisResult(__instance, __result);
+
+            __result = MedicalCaseRewriteService.RunRewriteOwnedDiagnose(__instance, certaintyBonus, byPlayer);
+            return false;
         }
     }
 
