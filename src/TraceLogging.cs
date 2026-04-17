@@ -28,6 +28,7 @@ namespace ProjectHospital.AutoLabBalancer
             public readonly List<string> ActiveTreatmentIds = new List<string>();
             public readonly List<string> PlannedTreatmentIds = new List<string>();
             public readonly List<string> LabProcedureIds = new List<string>();
+            public string ReservedProcedureId;
         }
 
         private sealed class CaseTraceDecision
@@ -279,10 +280,13 @@ namespace ProjectHospital.AutoLabBalancer
 
             var state = new CaseTraceQueueState();
             state.ActiveExaminationId = SafeDatabaseId(ReflectionHelpers.ResolvePointer(queue.m_activeExamination) as GameDBExamination);
-            CopyIdentifiers(queue.m_plannedExaminations, null, state.PlannedExaminationIds);
+            CopyIdentifiers(queue.m_plannedExaminationStates, "m_examination", state.PlannedExaminationIds);
             CopyIdentifiers(queue.m_activeTreatmentStates, "m_treatment", state.ActiveTreatmentIds);
             CopyIdentifiers(queue.m_plannedTreatmentStates, "m_treatment", state.PlannedTreatmentIds);
             CopyLabIdentifiers(queue.m_labProcedures, state.LabProcedureIds);
+            state.ReservedProcedureId = procedure.m_state != null && procedure.m_state.m_reservedProcedureScript != null && procedure.m_state.m_reservedProcedureScript.CheckEntity()
+                ? procedure.m_state.m_reservedProcedureScript.GetEntity().GetEntityID().ToString(CultureInfo.InvariantCulture)
+                : "-";
             return state;
         }
 

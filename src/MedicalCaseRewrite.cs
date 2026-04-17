@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Text;
 using BepInEx;
 using HarmonyLib;
@@ -354,6 +355,7 @@ namespace ProjectHospital.AutoLabBalancer
     {
         public string EventId;
         public DiagnosticEventKind Kind;
+        public string FamilyKey;
         public string SubjectId;
         public string Source;
         public float ProcessedAtHours;
@@ -393,6 +395,7 @@ namespace ProjectHospital.AutoLabBalancer
         public CaseDirtyFlags DirtyFlags = CaseDirtyFlags.None;
         public int ProblemTrackCap = 15;
         public readonly List<CaseTimelineEvent> Timeline = new List<CaseTimelineEvent>();
+        public bool RequiresRuntimeImport = true;
     }
 
     internal sealed class CaseDiagnosis : CaseProblem
@@ -639,7 +642,9 @@ namespace ProjectHospital.AutoLabBalancer
             public string TitleLine;
             public readonly List<string> DiagnosisLines = new List<string>();
             public readonly List<string> SymptomLines = new List<string>();
-            public readonly List<string> BlockerLines = new List<string>();
+            public readonly List<string> BacklogLines = new List<string>();
+            public readonly List<string> CurrentPlanLines = new List<string>();
+            public readonly List<string> DispositionLines = new List<string>();
             public readonly List<string> TimelineLines = new List<string>();
         }
 
@@ -692,6 +697,7 @@ namespace ProjectHospital.AutoLabBalancer
         private const int MaxDiagnosticJournalEntries = 128;
         private const int MaxTimelineEntries = 96;
         private const int DefaultProblemTrackCap = 15;
+        private const string CaseStorageVersion = "2";
         private static BehaviorPatient SelectedPatient;
         private static int MaterializationWriteDepth;
 
@@ -1864,6 +1870,7 @@ namespace ProjectHospital.AutoLabBalancer
                 return;
             }
 
+            var previousFingerprint = patientCase.MaterializedSlice.LastFingerprint;
             var runtimeDepartmentId = patient == null ? patientCase.ActiveDepartmentId : GetCaseRuntimeDepartmentId(patient, patientCase);
             var activeCluster = FindActiveCluster(patientCase, runtimeDepartmentId);
             var projectedDepartmentId = activeCluster != null && !string.IsNullOrEmpty(activeCluster.DepartmentId)
@@ -1875,14 +1882,6 @@ namespace ProjectHospital.AutoLabBalancer
                 && !string.IsNullOrEmpty(patientCase.Disposition.TargetDepartmentId)
                 && !string.Equals(runtimeDepartmentId, patientCase.Disposition.TargetDepartmentId, StringComparison.Ordinal)
                 && checkpoint != CaseCheckpoint.ChangeDepartmentCommit;
-            var fingerprint = BuildMaterializedSliceFingerprint(patient, patientCase, activeCluster, checkpoint, reason);
-            if (string.Equals(patientCase.MaterializedSlice.LastFingerprint, fingerprint, StringComparison.Ordinal))
-            {
-                UpdateCompatibilityProjection(patientCase, activeCluster, projectedDepartmentId, reason);
-                return;
-            }
-
-            patientCase.MaterializedSlice.LastFingerprint = fingerprint;
             patientCase.MaterializedSlice.ClusterId = activeCluster == null ? null : activeCluster.ClusterId;
             patientCase.MaterializedSlice.DepartmentId = runtimeDepartmentId;
             patientCase.MaterializedSlice.WaitingTransferCommit = waitingTransferCommit;
@@ -1951,9 +1950,15 @@ namespace ProjectHospital.AutoLabBalancer
                 });
             }
 
+            patientCase.RequiresRuntimeImport = false;
             UpdateCompatibilityProjection(patientCase, activeCluster, projectedDepartmentId, reason);
-            patientCase.MaterializedSlice.Version++;
-            OnMaterializedSliceVersionChanged(patient, patientCase, checkpoint, reason);
+            var fingerprint = BuildMaterializedSliceFingerprint(patientCase);
+            patientCase.MaterializedSlice.LastFingerprint = fingerprint;
+            if (!string.Equals(previousFingerprint, fingerprint, StringComparison.Ordinal))
+            {
+                patientCase.MaterializedSlice.Version++;
+                OnMaterializedSliceVersionChanged(patient, patientCase, checkpoint, reason);
+            }
         }
 
         private static void CaptureExecutionBindings(BehaviorPatient patient, PatientCase patientCase)
@@ -2213,19 +2218,22 @@ namespace ProjectHospital.AutoLabBalancer
             }
         }
 
-        private static string BuildMaterializedSliceFingerprint(BehaviorPatient patient, PatientCase patientCase, CareCluster activeCluster, CaseCheckpoint checkpoint, string reason)
+        private static string BuildMaterializedSliceFingerprint(PatientCase patientCase)
         {
-            var queueState = TraceLoggingService.CaptureQueueState(patient);
             var builder = new StringBuilder(256);
-            builder.Append(activeCluster == null ? "-" : activeCluster.ClusterId).Append("|")
-                .Append(patientCase == null ? "-" : patientCase.ActiveDepartmentId).Append("|")
-                .Append(queueState == null ? "-" : queueState.ActiveExaminationId).Append("|")
-                .Append(queueState == null ? "-" : FormatTraceList(queueState.PlannedExaminationIds)).Append("|")
-                .Append(queueState == null ? "-" : FormatTraceList(queueState.PlannedTreatmentIds)).Append("|")
-                .Append(queueState == null ? "-" : FormatTraceList(queueState.ActiveTreatmentIds)).Append("|")
-                .Append(queueState == null ? "-" : FormatTraceList(queueState.LabProcedureIds)).Append("|")
+            builder.Append(patientCase == null || patientCase.MaterializedSlice == null ? "-" : patientCase.MaterializedSlice.ClusterId).Append("|")
+                .Append(patientCase == null || patientCase.MaterializedSlice == null ? "-" : patientCase.MaterializedSlice.DepartmentId).Append("|")
+                .Append(patientCase == null || patientCase.MaterializedSlice == null ? "[]" : FormatTraceList(patientCase.MaterializedSlice.VisibleProblemIds)).Append("|")
+                .Append(patientCase == null || patientCase.MaterializedSlice == null ? "[]" : FormatTraceList(patientCase.MaterializedSlice.IntentIds)).Append("|")
+                .Append(patientCase == null || patientCase.MaterializedSlice == null ? "[]" : FormatTraceList(patientCase.MaterializedSlice.ReservedIntentIds)).Append("|")
+                .Append(patientCase == null || patientCase.MaterializedSlice == null ? "[]" : FormatTraceList(patientCase.MaterializedSlice.RunningIntentIds)).Append("|")
+                .Append(patientCase == null || patientCase.MaterializedSlice == null ? "[]" : FormatTraceList(patientCase.MaterializedSlice.ActiveLabIntentIds)).Append("|")
+                .Append(patientCase == null || patientCase.MaterializedSlice == null ? "[]" : FormatTraceList(patientCase.MaterializedSlice.ActiveTreatmentIntentIds)).Append("|")
+                .Append(patientCase == null || patientCase.MaterializedSlice == null ? "[]" : FormatTraceList(patientCase.MaterializedSlice.VanillaPlannedExaminations)).Append("|")
+                .Append(patientCase == null || patientCase.MaterializedSlice == null ? "[]" : FormatTraceList(patientCase.MaterializedSlice.VanillaPlannedTreatments)).Append("|")
                 .Append(patientCase == null || patientCase.Disposition == null ? "-" : patientCase.Disposition.Mode.ToString()).Append("|")
-                .Append(patientCase == null || patientCase.MaterializedSlice == null || !patientCase.MaterializedSlice.WaitingTransferCommit ? "-" : patientCase.MaterializedSlice.PendingTargetDepartmentId);
+                .Append(patientCase == null || patientCase.MaterializedSlice == null || !patientCase.MaterializedSlice.WaitingTransferCommit ? "-" : patientCase.MaterializedSlice.PendingTargetDepartmentId).Append("|")
+                .Append(FormatMaterializedBindingsTrace(patientCase));
             return builder.ToString();
         }
 
@@ -2255,16 +2263,30 @@ namespace ProjectHospital.AutoLabBalancer
             }
         }
 
-        private static string BuildDiagnosticEventId(BehaviorPatient patient, DiagnosticEventKind kind, string subjectId, string source)
+        private static string GetDiagnosticEventFamilyKey(DiagnosticEventKind kind)
+        {
+            switch (kind)
+            {
+                case DiagnosticEventKind.Interview:
+                    return "interview";
+                case DiagnosticEventKind.ReceptionFast:
+                    return "reception";
+                case DiagnosticEventKind.LabResultsReady:
+                    return "lab";
+                case DiagnosticEventKind.MonitoringReveal:
+                    return "monitoring";
+                default:
+                    return "exam";
+            }
+        }
+
+        private static string BuildDiagnosticEventId(BehaviorPatient patient, DiagnosticEventKind kind, string subjectId, string source, string stableInstanceId)
         {
             var entity = patient == null ? null : ReflectionHelpers.GetField(patient, "m_entity") as GLib.Entity;
-            var minuteStamp = Mathf.RoundToInt(GetCaseClockHours() * 60f);
-            var queueState = TraceLoggingService.CaptureQueueState(patient);
             return (entity == null ? "0" : entity.GetEntityID().ToString(CultureInfo.InvariantCulture))
-                + "|" + kind
+                + "|" + GetDiagnosticEventFamilyKey(kind)
                 + "|" + (subjectId ?? "-")
-                + "|" + minuteStamp.ToString(CultureInfo.InvariantCulture)
-                + "|" + (queueState == null ? "-" : queueState.ActiveExaminationId)
+                + "|" + (stableInstanceId ?? "-")
                 + "|" + (source ?? "-");
         }
 
@@ -2275,10 +2297,32 @@ namespace ProjectHospital.AutoLabBalancer
                 return false;
             }
 
-            for (var i = 0; i < patientCase.ProcessedDiagnosticEventJournal.Count; i++)
+            var familyKey = string.Empty;
+            var separatorIndex = eventId.IndexOf('|');
+            if (separatorIndex >= 0)
+            {
+                var secondSeparatorIndex = eventId.IndexOf('|', separatorIndex + 1);
+                if (secondSeparatorIndex > separatorIndex)
+                {
+                    familyKey = eventId.Substring(separatorIndex + 1, secondSeparatorIndex - separatorIndex - 1);
+                }
+            }
+
+            for (var i = patientCase.ProcessedDiagnosticEventJournal.Count - 1; i >= 0; i--)
             {
                 var entry = patientCase.ProcessedDiagnosticEventJournal[i];
-                if (entry != null && string.Equals(entry.EventId, eventId, StringComparison.Ordinal))
+                if (entry == null)
+                {
+                    continue;
+                }
+
+                if (!string.IsNullOrEmpty(familyKey)
+                    && !string.Equals(entry.FamilyKey, familyKey, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                if (string.Equals(entry.EventId, eventId, StringComparison.Ordinal))
                 {
                     return true;
                 }
@@ -2294,29 +2338,48 @@ namespace ProjectHospital.AutoLabBalancer
                 return;
             }
 
-            if (patientCase.ProcessedDiagnosticEventJournal.Count >= MaxDiagnosticJournalEntries)
+            var familyKey = GetDiagnosticEventFamilyKey(kind);
+            var familyCount = 0;
+            for (var i = patientCase.ProcessedDiagnosticEventJournal.Count - 1; i >= 0; i--)
             {
-                patientCase.ProcessedDiagnosticEventJournal.RemoveAt(0);
+                var existing = patientCase.ProcessedDiagnosticEventJournal[i];
+                if (existing == null)
+                {
+                    patientCase.ProcessedDiagnosticEventJournal.RemoveAt(i);
+                    continue;
+                }
+
+                if (!string.Equals(existing.FamilyKey, familyKey, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                familyCount++;
+                if (familyCount >= MaxDiagnosticJournalEntries)
+                {
+                    patientCase.ProcessedDiagnosticEventJournal.RemoveAt(i);
+                }
             }
 
             patientCase.ProcessedDiagnosticEventJournal.Add(new DiagnosticEventJournalEntry
             {
                 EventId = eventId,
                 Kind = kind,
+                FamilyKey = familyKey,
                 SubjectId = subjectId,
                 Source = source,
                 ProcessedAtHours = GetCaseClockHours()
             });
         }
 
-        private static int ProcessDiagnosticEvent(BehaviorPatient patient, DiagnosticEventKind kind, string subjectId, string source)
+        private static int ProcessDiagnosticEvent(BehaviorPatient patient, DiagnosticEventKind kind, string subjectId, string source, string stableInstanceId)
         {
             var patientCase = GetCase(patient);
             if (patientCase == null || patientCase.Complete)
             {
                 return 0;
             }
-            var eventId = BuildDiagnosticEventId(patient, kind, subjectId, source);
+            var eventId = BuildDiagnosticEventId(patient, kind, subjectId, source, stableInstanceId);
             if (HasProcessedDiagnosticEvent(patientCase, eventId))
             {
                 return 0;
@@ -2331,11 +2394,13 @@ namespace ProjectHospital.AutoLabBalancer
                     continue;
                 }
 
-                revealed += RevealFromDiagnosticEvent(diagnosis, kind, subjectId, eventId);
-                if (revealed > 0 && diagnosis.Status == CaseDiagnosisStatus.Hidden)
+                var diagnosisRevealed = RevealFromDiagnosticEvent(diagnosis, kind, subjectId, eventId);
+                if (diagnosisRevealed > 0 && diagnosis.Status == CaseDiagnosisStatus.Hidden)
                 {
                     diagnosis.Status = CaseDiagnosisStatus.Observed;
                 }
+
+                revealed += diagnosisRevealed;
             }
 
             AppendDiagnosticEvent(patientCase, eventId, kind, subjectId, source);
@@ -2474,7 +2539,11 @@ namespace ProjectHospital.AutoLabBalancer
                     continue;
                 }
 
-                if (ProcessDiagnosticEvent(patient, DiagnosticEventKind.MonitoringReveal, symptom.DatabaseID.ToString(), "monitoring") > 0)
+                var windowId = "monitoring:"
+                    + symptom.DatabaseID
+                    + ":"
+                    + Mathf.FloorToInt(GetCaseClockHours() * 2f).ToString(CultureInfo.InvariantCulture);
+                if (ProcessDiagnosticEvent(patient, DiagnosticEventKind.MonitoringReveal, symptom.DatabaseID.ToString(), "monitoring", windowId) > 0)
                 {
                     changed = true;
                 }
@@ -2925,28 +2994,28 @@ namespace ProjectHospital.AutoLabBalancer
                 snapshot.SymptomLines.Add((i + 1) + ". " + FormatSymptoms(diagnosis) + FormatInteractionSummary(diagnosis));
             }
 
+            BuildCaseBacklogLines(patientCase, snapshot.BacklogLines);
+            BuildCurrentPlanLines(patientCase, snapshot.CurrentPlanLines);
             var blockers = BuildCaseBlockers(patient, patientCase);
             if (patientCase.Disposition != null)
             {
-                snapshot.BlockerLines.Add("- disposition: " + patientCase.Disposition.Mode + " | " + NormalizeCaseUiText(patientCase.Disposition.Reason));
+                snapshot.DispositionLines.Add("- mode: " + patientCase.Disposition.Mode);
+                snapshot.DispositionLines.Add("- reason: " + NormalizeCaseUiText(patientCase.Disposition.Reason));
                 if (!string.IsNullOrEmpty(patientCase.Disposition.ReferralTradeoff))
                 {
-                    snapshot.BlockerLines.Add("- referral tradeoff: " + NormalizeCaseUiText(patientCase.Disposition.ReferralTradeoff));
+                    snapshot.DispositionLines.Add("- referral tradeoff: " + NormalizeCaseUiText(patientCase.Disposition.ReferralTradeoff));
                 }
             }
 
             for (var i = 0; i < blockers.Count; i++)
             {
-                snapshot.BlockerLines.Add("- " + blockers[i]);
+                snapshot.DispositionLines.Add("- blocker: " + blockers[i]);
             }
 
-            if (RuntimeSettings.Config.CaseRewriteDebugLog.Value)
+            for (var i = Math.Max(0, patientCase.TimelineEntries.Count - 16); i < patientCase.TimelineEntries.Count; i++)
             {
-                for (var i = Math.Max(0, patientCase.Timeline.Count - 12); i < patientCase.Timeline.Count; i++)
-                {
-                    var item = patientCase.Timeline[i];
-                    snapshot.TimelineLines.Add("D" + item.Day + " " + item.Hour.ToString("0.0") + ": " + item.Text);
-                }
+                var item = patientCase.TimelineEntries[i];
+                snapshot.TimelineLines.Add("D" + item.Day + " " + item.Hour.ToString("0.0") + ": " + item.Text);
             }
 
             CaseWindowSnapshots[patientCase.PatientEntityId] = snapshot;
@@ -3647,20 +3716,30 @@ namespace ProjectHospital.AutoLabBalancer
 
             if (patient.m_state.m_sentAway)
             {
-                MarkReferred(patient, "sent away before vanilla leave");
+                if (!patientCase.Complete)
+                {
+                    MarkCaseDirty(patientCase, CaseDirtyFlags.Routing | CaseDirtyFlags.Materialization | CaseDirtyFlags.Disposition | CaseDirtyFlags.Ui);
+                    ReconcileCaseAtCheckpoint(patient, CaseCheckpoint.LeaveGate, "sent_away_leave_gate");
+                    if (patientCase.Disposition.Mode != CaseDispositionMode.ReferOut)
+                    {
+                        patient.m_state.m_sentAway = false;
+                        return false;
+                    }
+
+                    MarkReferred(patient, "rewrite-owned referral committed");
+                }
+
                 return true;
             }
 
             if (leaveAfterHours)
             {
-                MarkReferred(patient, "left after closing hours");
-                return true;
+                return TryAdvanceBeforeDischarge(patient);
             }
 
             if (!pay)
             {
-                MarkReferred(patient, "vanilla no-payment leave");
-                return true;
+                return TryAdvanceBeforeDischarge(patient);
             }
 
             if (IsCaseFullyTreated(patientCase))
@@ -3757,7 +3836,28 @@ namespace ProjectHospital.AutoLabBalancer
                 return;
             }
 
-            MarkReferred(patient, "manual patient panel transfer");
+            TryReferBlockedCase(patient, "manual_panel_transfer", "manual patient panel transfer");
+        }
+
+        public static bool ShouldRunManualPanelTransfer(object controller)
+        {
+            if (!Enabled || controller == null)
+            {
+                return true;
+            }
+
+            var character = ReflectionHelpers.GetField(controller, "m_character");
+            var entityMethod = character == null ? null : character.GetType().GetMethod("GetEntity", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, Type.EmptyTypes, null);
+            var entity = entityMethod == null ? null : entityMethod.Invoke(character, null) as GLib.Entity;
+            var patient = entity == null ? null : entity.GetComponent<BehaviorPatient>();
+            var patientCase = GetCase(patient);
+            if (patientCase == null || patientCase.Complete)
+            {
+                return true;
+            }
+
+            TryReferBlockedCase(patient, "manual_panel_transfer", "manual panel transfer");
+            return false;
         }
 
         public static void ForgetCaseForDeveloper(BehaviorPatient patient)
@@ -4157,6 +4257,136 @@ namespace ProjectHospital.AutoLabBalancer
             return patientCase != null;
         }
 
+        private static string GetProcedureScriptStableInstanceId(ProcedureScript procedureScript)
+        {
+            if (procedureScript == null)
+            {
+                return "-";
+            }
+
+            return "script_ref:" + RuntimeHelpers.GetHashCode(procedureScript).ToString(CultureInfo.InvariantCulture)
+                + "|type:" + procedureScript.GetType().FullName;
+        }
+
+        private static string GetLastFinishedExaminationInstanceId(BehaviorPatient patient, GameDBExamination examination)
+        {
+            if (patient == null || examination == null)
+            {
+                return null;
+            }
+
+            var procedure = patient.GetComponent<ProcedureComponent>();
+            if (procedure != null && procedure.m_state != null && procedure.m_state.m_reservedProcedureScript != null && procedure.m_state.m_reservedProcedureScript.CheckEntity())
+            {
+                return "procedure:" + procedure.m_state.m_reservedProcedureScript.GetEntity().GetEntityID().ToString(CultureInfo.InvariantCulture)
+                    + "|exam:" + examination.DatabaseID;
+            }
+
+            var entity = ReflectionHelpers.GetField(patient, "m_entity") as GLib.Entity;
+            return "exam:" + examination.DatabaseID + "|patient:" + (entity == null ? "0" : entity.GetEntityID().ToString(CultureInfo.InvariantCulture));
+        }
+
+        private static string GetLabProcedureStableInstanceId(object labProcedure, string subjectId)
+        {
+            if (labProcedure == null)
+            {
+                return "lab:" + (subjectId ?? "-");
+            }
+
+            var entity = ReflectionHelpers.ResolvePointer(ReflectionHelpers.GetField(labProcedure, "m_entity")) as GLib.Entity;
+            if (entity != null)
+            {
+                return "lab_entity:" + entity.GetEntityID().ToString(CultureInfo.InvariantCulture);
+            }
+
+            return "lab_ref:" + RuntimeHelpers.GetHashCode(labProcedure).ToString(CultureInfo.InvariantCulture)
+                + "|exam:" + (subjectId ?? "-");
+        }
+
+        public static void EmitDiagnosticEventForInterview(BehaviorPatient patient, ProcedureScript procedureScript, DiagnosticEventKind kind)
+        {
+            if (!Enabled || patient == null || procedureScript == null)
+            {
+                return;
+            }
+
+            var patientCase = GetOrCreateCompatibilityCase(patient, ReflectionHelpers.GetField(patient, "m_entity") as GLib.Entity);
+            if (patientCase == null)
+            {
+                return;
+            }
+
+            ProcessDiagnosticEvent(
+                patient,
+                kind,
+                procedureScript.GetType().Name,
+                "procedure_script",
+                GetProcedureScriptStableInstanceId(procedureScript));
+
+            if (MirrorKnownVanillaSymptomsToCase(patient, patientCase) > 0)
+            {
+                PersistMirroredSymptoms(patientCase);
+            }
+        }
+
+        public static void EmitDiagnosticEventForFinishedExamination(BehaviorPatient patient, GameDBExamination examination)
+        {
+            if (!Enabled || patient == null || examination == null)
+            {
+                return;
+            }
+
+            var patientCase = GetOrCreateCompatibilityCase(patient, ReflectionHelpers.GetField(patient, "m_entity") as GLib.Entity);
+            if (patientCase == null)
+            {
+                return;
+            }
+
+            ProcessDiagnosticEvent(
+                patient,
+                DiagnosticEventKind.ExaminationFinished,
+                examination.DatabaseID.ToString(),
+                "examination_finished",
+                GetLastFinishedExaminationInstanceId(patient, examination));
+
+            if (MirrorKnownVanillaSymptomsToCase(patient, patientCase) > 0)
+            {
+                PersistMirroredSymptoms(patientCase);
+            }
+        }
+
+        public static void EmitDiagnosticEventForLabProcedure(BehaviorPatient patient, object labProcedure)
+        {
+            if (!Enabled || patient == null || labProcedure == null)
+            {
+                return;
+            }
+
+            var examination = ReflectionHelpers.ResolvePointer(ReflectionHelpers.GetField(labProcedure, "m_examination")) as GameDBExamination;
+            if (examination == null)
+            {
+                return;
+            }
+
+            var patientCase = GetOrCreateCompatibilityCase(patient, ReflectionHelpers.GetField(patient, "m_entity") as GLib.Entity);
+            if (patientCase == null)
+            {
+                return;
+            }
+
+            ProcessDiagnosticEvent(
+                patient,
+                DiagnosticEventKind.LabResultsReady,
+                examination.DatabaseID.ToString(),
+                "finish_lab_procedures",
+                GetLabProcedureStableInstanceId(labProcedure, examination.DatabaseID.ToString()));
+
+            if (MirrorKnownVanillaSymptomsToCase(patient, patientCase) > 0)
+            {
+                PersistMirroredSymptoms(patientCase);
+            }
+        }
+
         public static void RevealSymptomsFromLastExamination(BehaviorPatient patient, ProcedureScript procedureScript)
         {
             if (!Enabled || patient == null)
@@ -4173,11 +4403,6 @@ namespace ProjectHospital.AutoLabBalancer
                     if (scriptTypeName.IndexOf("DoctorsInterview", StringComparison.OrdinalIgnoreCase) >= 0
                         || scriptTypeName.IndexOf("ReceptionFast", StringComparison.OrdinalIgnoreCase) >= 0)
                     {
-                        ProcessDiagnosticEvent(
-                            patient,
-                            scriptTypeName.IndexOf("ReceptionFast", StringComparison.OrdinalIgnoreCase) >= 0 ? DiagnosticEventKind.ReceptionFast : DiagnosticEventKind.Interview,
-                            scriptTypeName,
-                            "procedure_script");
                         if (MirrorKnownVanillaSymptomsToCase(patient, patientCase) > 0)
                         {
                             PersistMirroredSymptoms(patientCase);
@@ -4208,51 +4433,18 @@ namespace ProjectHospital.AutoLabBalancer
                 return;
             }
 
-            ProcessDiagnosticEvent(
-                patient,
-                examination.LabTestingExaminationRef != null ? DiagnosticEventKind.LabResultsReady : DiagnosticEventKind.ExaminationFinished,
-                examination.DatabaseID.ToString(),
-                "examination");
-
             var patientCase = GetCase(patient);
             if (patientCase == null || patientCase.Complete)
             {
                 return;
             }
 
-            var revealed = 0;
-            for (var i = 0; i < patientCase.Diagnoses.Count; i++)
-            {
-                var diagnosis = patientCase.Diagnoses[i];
-                if (diagnosis == null || IsTerminalStatus(diagnosis.Status))
-                {
-                    continue;
-                }
-
-                var condition = ResolveDiagnosis(diagnosis.DiagnosisId);
-                var diagnosisRevealed = RevealSymptomsForDiagnosis(diagnosis, condition, examination);
-                if (diagnosisRevealed <= 0)
-                {
-                    continue;
-                }
-
-                revealed += diagnosisRevealed;
-                if (diagnosis.Status == CaseDiagnosisStatus.Hidden)
-                {
-                    diagnosis.Status = CaseDiagnosisStatus.Suspected;
-                }
-
-                PromoteDiagnosisAfterReveal(patientCase, diagnosis, condition);
-            }
-
-            if (revealed <= 0)
+            if (MirrorKnownVanillaSymptomsToCase(patient, patientCase) <= 0)
             {
                 return;
             }
 
-            AddTimeline(patientCase, revealed + " case symptom(s) revealed by examination.");
-            MarkCaseDirty(patientCase, CaseDirtyFlags.Evidence | CaseDirtyFlags.Routing | CaseDirtyFlags.Materialization | CaseDirtyFlags.Disposition | CaseDirtyFlags.Timeline | CaseDirtyFlags.Ui);
-            Save();
+            PersistMirroredSymptoms(patientCase);
         }
 
         public static bool RevealHighestPriorityHiddenSymptom(BehaviorPatient patient)
@@ -10627,13 +10819,33 @@ namespace ProjectHospital.AutoLabBalancer
                 GUILayout.Label(snapshot.SymptomLines[i], TextStyle);
             }
 
-            if (snapshot.BlockerLines.Count > 0)
+            if (snapshot.BacklogLines.Count > 0)
             {
                 GUILayout.Space(6f);
-                GUILayout.Label(ModText.T("MedicalCaseBlockers"), HeaderStyle);
-                for (var i = 0; i < snapshot.BlockerLines.Count; i++)
+                GUILayout.Label("Case Backlog", HeaderStyle);
+                for (var i = 0; i < snapshot.BacklogLines.Count; i++)
                 {
-                    GUILayout.Label(snapshot.BlockerLines[i], TextStyle);
+                    GUILayout.Label(snapshot.BacklogLines[i], TextStyle);
+                }
+            }
+
+            if (snapshot.CurrentPlanLines.Count > 0)
+            {
+                GUILayout.Space(6f);
+                GUILayout.Label("Current Plan", HeaderStyle);
+                for (var i = 0; i < snapshot.CurrentPlanLines.Count; i++)
+                {
+                    GUILayout.Label(snapshot.CurrentPlanLines[i], TextStyle);
+                }
+            }
+
+            if (snapshot.DispositionLines.Count > 0)
+            {
+                GUILayout.Space(6f);
+                GUILayout.Label("Disposition", HeaderStyle);
+                for (var i = 0; i < snapshot.DispositionLines.Count; i++)
+                {
+                    GUILayout.Label(snapshot.DispositionLines[i], TextStyle);
                 }
             }
 
@@ -10773,6 +10985,86 @@ namespace ProjectHospital.AutoLabBalancer
             }
 
             return builder.ToString();
+        }
+
+        private static void BuildCaseBacklogLines(PatientCase patientCase, List<string> target)
+        {
+            if (patientCase == null || target == null)
+            {
+                return;
+            }
+
+            for (var i = 0; i < patientCase.Intents.Count; i++)
+            {
+                var intent = patientCase.Intents[i];
+                if (intent == null || intent.Status == CaseIntentStatus.Completed || intent.Status == CaseIntentStatus.Cancelled)
+                {
+                    continue;
+                }
+
+                var inActiveSlice = !string.IsNullOrEmpty(patientCase.MaterializedSlice.ClusterId)
+                    && string.Equals(intent.OwningClusterId, patientCase.MaterializedSlice.ClusterId, StringComparison.Ordinal)
+                    && (intent.Status == CaseIntentStatus.Materialized || intent.Status == CaseIntentStatus.Running);
+                if (inActiveSlice)
+                {
+                    continue;
+                }
+
+                target.Add("- " + intent.Kind + " | " + intent.Status + " | " + FormatIntentOwner(patientCase, intent) + " | " + (string.IsNullOrEmpty(intent.ProcedureId) ? intent.IntentId : intent.ProcedureId));
+            }
+
+            if (target.Count == 0)
+            {
+                target.Add("- none");
+            }
+        }
+
+        private static void BuildCurrentPlanLines(PatientCase patientCase, List<string> target)
+        {
+            if (patientCase == null || target == null)
+            {
+                return;
+            }
+
+            target.Add("- cluster: " + (string.IsNullOrEmpty(patientCase.MaterializedSlice.ClusterId) ? "-" : patientCase.MaterializedSlice.ClusterId));
+            target.Add("- planned exams: " + FormatTraceList(patientCase.MaterializedSlice.VanillaPlannedExaminations));
+            target.Add("- planned treatments: " + FormatTraceList(patientCase.MaterializedSlice.VanillaPlannedTreatments));
+            target.Add("- reserved intents: " + FormatTraceList(patientCase.MaterializedSlice.ReservedIntentIds));
+            target.Add("- running intents: " + FormatTraceList(patientCase.MaterializedSlice.RunningIntentIds));
+            target.Add("- lab intents: " + FormatTraceList(patientCase.MaterializedSlice.ActiveLabIntentIds));
+            target.Add("- active treatment intents: " + FormatTraceList(patientCase.MaterializedSlice.ActiveTreatmentIntentIds));
+            if (patientCase.MaterializedSlice.Bindings.Count > 0)
+            {
+                for (var i = 0; i < patientCase.MaterializedSlice.Bindings.Count; i++)
+                {
+                    var binding = patientCase.MaterializedSlice.Bindings[i];
+                    if (binding == null)
+                    {
+                        continue;
+                    }
+
+                    target.Add("- binding: " + binding.Kind + " | " + (string.IsNullOrEmpty(binding.BoundId) ? "-" : binding.BoundId) + " | " + (string.IsNullOrEmpty(binding.Description) ? "-" : NormalizeCaseUiText(binding.Description)));
+                }
+            }
+        }
+
+        private static string FormatIntentOwner(PatientCase patientCase, CaseIntent intent)
+        {
+            if (patientCase == null || intent == null)
+            {
+                return "-";
+            }
+
+            for (var i = 0; i < patientCase.Clusters.Count; i++)
+            {
+                var cluster = patientCase.Clusters[i];
+                if (cluster != null && string.Equals(cluster.ClusterId, intent.OwningClusterId, StringComparison.Ordinal))
+                {
+                    return string.IsNullOrEmpty(cluster.DepartmentId) ? cluster.ClusterId : cluster.DepartmentId;
+                }
+            }
+
+            return string.IsNullOrEmpty(intent.OwningClusterId) ? "-" : intent.OwningClusterId;
         }
 
         private static string FormatCollapseWindow(CaseDiagnosis diagnosis)
@@ -10989,6 +11281,11 @@ namespace ProjectHospital.AutoLabBalancer
                 PatientCase current = null;
                 foreach (var line in File.ReadAllLines(path))
                 {
+                    if (string.IsNullOrEmpty(line) || line.StartsWith("CASEV|", StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+
                     if (line.StartsWith("CASE|", StringComparison.Ordinal))
                     {
                         var parts = line.Split('|');
@@ -11014,7 +11311,8 @@ namespace ProjectHospital.AutoLabBalancer
                             Complete = bool.Parse(parts[5]),
                             ActiveDepartmentId = parts[6],
                             RiskScore = int.Parse(parts[7], CultureInfo.InvariantCulture),
-                            CollapseTimerMultiplier = collapseTimerMultiplier
+                            CollapseTimerMultiplier = collapseTimerMultiplier,
+                            RequiresRuntimeImport = true
                         };
                         if (!current.Complete)
                         {
@@ -11091,6 +11389,29 @@ namespace ProjectHospital.AutoLabBalancer
 
                         current.Diagnoses.Add(diagnosis);
                     }
+                    else if (line.StartsWith("CJ|", StringComparison.Ordinal) && current != null)
+                    {
+                        var parts = line.Split('|');
+                        if (parts.Length < 6)
+                        {
+                            continue;
+                        }
+
+                        var entry = new DiagnosticEventJournalEntry
+                        {
+                            EventId = parts[1],
+                            Kind = (DiagnosticEventKind)Enum.Parse(typeof(DiagnosticEventKind), parts[2]),
+                            FamilyKey = parts[3],
+                            SubjectId = parts[4],
+                            Source = parts[5]
+                        };
+                        if (parts.Length >= 7)
+                        {
+                            float.TryParse(parts[6], NumberStyles.Float, CultureInfo.InvariantCulture, out entry.ProcessedAtHours);
+                        }
+
+                        current.ProcessedDiagnosticEventJournal.Add(entry);
+                    }
                     else if (line.StartsWith("EV|", StringComparison.Ordinal) && current != null)
                     {
                         var parts = line.Split('|');
@@ -11105,6 +11426,147 @@ namespace ProjectHospital.AutoLabBalancer
                             Hour = float.Parse(parts[2], CultureInfo.InvariantCulture),
                             Text = parts[3]
                         });
+                    }
+                    else if (line.StartsWith("TE|", StringComparison.Ordinal) && current != null)
+                    {
+                        var parts = line.Split('|');
+                        if (parts.Length < 8)
+                        {
+                            continue;
+                        }
+
+                        current.TimelineEntries.Add(new TimelineEntry
+                        {
+                            Day = int.Parse(parts[1], CultureInfo.InvariantCulture),
+                            Hour = float.Parse(parts[2], CultureInfo.InvariantCulture),
+                            Category = parts[3],
+                            ProblemId = parts[4],
+                            ClusterId = parts[5],
+                            Reason = parts[6],
+                            Text = parts[7]
+                        });
+                    }
+                    else if (line.StartsWith("DISP|", StringComparison.Ordinal) && current != null)
+                    {
+                        var parts = line.Split('|');
+                        if (parts.Length < 6)
+                        {
+                            continue;
+                        }
+
+                        current.Disposition.Mode = (CaseDispositionMode)Enum.Parse(typeof(CaseDispositionMode), parts[1]);
+                        current.Disposition.ClusterId = parts[2];
+                        current.Disposition.TargetDepartmentId = parts[3];
+                        current.Disposition.ReferralOutcome = (ReferralOutcomeClass)Enum.Parse(typeof(ReferralOutcomeClass), parts[4]);
+                        current.Disposition.Reason = parts[5];
+                        current.Disposition.ReferralTradeoff = parts.Length >= 7 ? parts[6] : string.Empty;
+                        current.Disposition.BlocksDischarge = parts.Length >= 8 && bool.Parse(parts[7]);
+                        current.Disposition.BlocksReleaseFromObservation = parts.Length >= 9 && bool.Parse(parts[8]);
+                    }
+                    else if (line.StartsWith("CL|", StringComparison.Ordinal) && current != null)
+                    {
+                        var parts = line.Split('|');
+                        if (parts.Length < 7)
+                        {
+                            continue;
+                        }
+
+                        var cluster = new CareCluster
+                        {
+                            ClusterId = parts[1],
+                            DepartmentId = parts[2],
+                            ExecutionState = (CareClusterExecutionState)Enum.Parse(typeof(CareClusterExecutionState), parts[3]),
+                            NeedsHospitalization = bool.Parse(parts[4]),
+                            Priority = int.Parse(parts[5], CultureInfo.InvariantCulture)
+                        };
+                        ParseJoinedList(parts[6], cluster.ProblemIds);
+                        if (parts.Length >= 8)
+                        {
+                            ParseJoinedList(parts[7], cluster.Blockers);
+                        }
+
+                        current.Clusters.Add(cluster);
+                    }
+                    else if (line.StartsWith("IN|", StringComparison.Ordinal) && current != null)
+                    {
+                        var parts = line.Split('|');
+                        if (parts.Length < 7)
+                        {
+                            continue;
+                        }
+
+                        var intent = new CaseIntent
+                        {
+                            IntentId = parts[1],
+                            Kind = (CaseIntentKind)Enum.Parse(typeof(CaseIntentKind), parts[2]),
+                            ProcedureId = parts[3],
+                            OwningClusterId = parts[4],
+                            Status = (CaseIntentStatus)Enum.Parse(typeof(CaseIntentStatus), parts[5]),
+                            Priority = int.Parse(parts[6], CultureInfo.InvariantCulture)
+                        };
+                        if (parts.Length >= 8)
+                        {
+                            ParseJoinedList(parts[7], intent.ReasonProblemIds);
+                        }
+
+                        if (parts.Length >= 9)
+                        {
+                            ParseJoinedList(parts[8], intent.Blockers);
+                        }
+
+                        current.Intents.Add(intent);
+                    }
+                    else if (line.StartsWith("MS|", StringComparison.Ordinal) && current != null)
+                    {
+                        var parts = line.Split('|');
+                        if (parts.Length < 14)
+                        {
+                            continue;
+                        }
+
+                        current.MaterializedSlice.ClusterId = parts[1];
+                        current.MaterializedSlice.DepartmentId = parts[2];
+                        current.MaterializedSlice.Version = int.Parse(parts[3], CultureInfo.InvariantCulture);
+                        current.MaterializedSlice.WaitingTransferCommit = bool.Parse(parts[4]);
+                        current.MaterializedSlice.PendingTargetDepartmentId = parts[5];
+                        current.MaterializedSlice.LastFingerprint = parts[6];
+                        ParseJoinedList(parts[7], current.MaterializedSlice.VisibleProblemIds);
+                        ParseJoinedList(parts[8], current.MaterializedSlice.IntentIds);
+                        ParseJoinedList(parts[9], current.MaterializedSlice.ReservedIntentIds);
+                        ParseJoinedList(parts[10], current.MaterializedSlice.RunningIntentIds);
+                        ParseJoinedList(parts[11], current.MaterializedSlice.ActiveLabIntentIds);
+                        ParseJoinedList(parts[12], current.MaterializedSlice.ActiveTreatmentIntentIds);
+                        ParseJoinedList(parts[13], current.MaterializedSlice.VanillaPlannedExaminations);
+                        if (parts.Length >= 15)
+                        {
+                            ParseJoinedList(parts[14], current.MaterializedSlice.VanillaPlannedTreatments);
+                        }
+
+                        if (parts.Length >= 16)
+                        {
+                            ParseBindings(parts[15], current.MaterializedSlice.Bindings);
+                        }
+                    }
+                    else if (line.StartsWith("CP|", StringComparison.Ordinal) && current != null)
+                    {
+                        var parts = line.Split('|');
+                        if (parts.Length < 8)
+                        {
+                            continue;
+                        }
+
+                        current.CompatibilityProjection.ProjectedDiagnosisId = parts[1];
+                        current.CompatibilityProjection.ProjectedClusterId = parts[2];
+                        current.CompatibilityProjection.ProjectedDepartmentId = parts[3];
+                        current.CompatibilityProjection.ProjectedHazard = parts[4];
+                        current.CompatibilityProjection.ProjectedDiagnosisState = parts[5];
+                        current.CompatibilityProjection.BlocksVanillaDischarge = bool.Parse(parts[6]);
+                        ParseJoinedList(parts[7], current.CompatibilityProjection.ProjectedSymptomIds);
+                        current.CompatibilityProjection.Reason = parts.Length >= 9 ? parts[8] : string.Empty;
+                        if (parts.Length >= 10)
+                        {
+                            float.TryParse(parts[9], NumberStyles.Float, CultureInfo.InvariantCulture, out current.CompatibilityProjection.UpdatedAtHours);
+                        }
                     }
                 }
             }
@@ -11131,6 +11593,7 @@ namespace ProjectHospital.AutoLabBalancer
                 }
 
                 var lines = new List<string>();
+                lines.Add("CASEV|" + CaseStorageVersion);
                 foreach (var patientCase in Cases.Values)
                 {
                     lines.Add("CASE|" + patientCase.CaseId + "|" + patientCase.PatientEntityId + "|" + Sanitize(patientCase.PatientName)
@@ -11142,11 +11605,114 @@ namespace ProjectHospital.AutoLabBalancer
                         lines.Add("DX|" + dx.DiagnosisId + "|" + dx.DepartmentId + "|" + dx.Hazard + "|" + dx.CollapseCapable + "|" + dx.SurgeryLikely + "|" + dx.Status + "|" + string.Join(",", dx.SymptomIds.ToArray()) + "|" + string.Join(",", dx.KnownSymptomIds.ToArray()) + "|" + string.Join(",", dx.TreatedSymptomIds.ToArray()) + "|" + dx.CollapseDeadlineHours.ToString(CultureInfo.InvariantCulture));
                     }
 
+                    for (var i = 0; i < patientCase.ProcessedDiagnosticEventJournal.Count; i++)
+                    {
+                        var entry = patientCase.ProcessedDiagnosticEventJournal[i];
+                        if (entry == null)
+                        {
+                            continue;
+                        }
+
+                        lines.Add("CJ|" + Sanitize(entry.EventId)
+                            + "|" + entry.Kind
+                            + "|" + Sanitize(entry.FamilyKey)
+                            + "|" + Sanitize(entry.SubjectId)
+                            + "|" + Sanitize(entry.Source)
+                            + "|" + entry.ProcessedAtHours.ToString(CultureInfo.InvariantCulture));
+                    }
+
                     for (var i = 0; i < patientCase.Timeline.Count; i++)
                     {
                         var ev = patientCase.Timeline[i];
                         lines.Add("EV|" + ev.Day + "|" + ev.Hour.ToString(CultureInfo.InvariantCulture) + "|" + Sanitize(ev.Text));
                     }
+
+                    for (var i = 0; i < patientCase.TimelineEntries.Count; i++)
+                    {
+                        var entry = patientCase.TimelineEntries[i];
+                        if (entry == null)
+                        {
+                            continue;
+                        }
+
+                        lines.Add("TE|" + entry.Day.ToString(CultureInfo.InvariantCulture)
+                            + "|" + entry.Hour.ToString(CultureInfo.InvariantCulture)
+                            + "|" + Sanitize(entry.Category)
+                            + "|" + Sanitize(entry.ProblemId)
+                            + "|" + Sanitize(entry.ClusterId)
+                            + "|" + Sanitize(entry.Reason)
+                            + "|" + Sanitize(entry.Text));
+                    }
+
+                    lines.Add("DISP|" + patientCase.Disposition.Mode
+                        + "|" + Sanitize(patientCase.Disposition.ClusterId)
+                        + "|" + Sanitize(patientCase.Disposition.TargetDepartmentId)
+                        + "|" + patientCase.Disposition.ReferralOutcome
+                        + "|" + Sanitize(patientCase.Disposition.Reason)
+                        + "|" + Sanitize(patientCase.Disposition.ReferralTradeoff)
+                        + "|" + patientCase.Disposition.BlocksDischarge
+                        + "|" + patientCase.Disposition.BlocksReleaseFromObservation);
+
+                    for (var i = 0; i < patientCase.Clusters.Count; i++)
+                    {
+                        var cluster = patientCase.Clusters[i];
+                        if (cluster == null)
+                        {
+                            continue;
+                        }
+
+                        lines.Add("CL|" + Sanitize(cluster.ClusterId)
+                            + "|" + Sanitize(cluster.DepartmentId)
+                            + "|" + cluster.ExecutionState
+                            + "|" + cluster.NeedsHospitalization
+                            + "|" + cluster.Priority.ToString(CultureInfo.InvariantCulture)
+                            + "|" + JoinList(cluster.ProblemIds)
+                            + "|" + JoinList(cluster.Blockers));
+                    }
+
+                    for (var i = 0; i < patientCase.Intents.Count; i++)
+                    {
+                        var intent = patientCase.Intents[i];
+                        if (intent == null)
+                        {
+                            continue;
+                        }
+
+                        lines.Add("IN|" + Sanitize(intent.IntentId)
+                            + "|" + intent.Kind
+                            + "|" + Sanitize(intent.ProcedureId)
+                            + "|" + Sanitize(intent.OwningClusterId)
+                            + "|" + intent.Status
+                            + "|" + intent.Priority.ToString(CultureInfo.InvariantCulture)
+                            + "|" + JoinList(intent.ReasonProblemIds)
+                            + "|" + JoinList(intent.Blockers));
+                    }
+
+                    lines.Add("MS|" + Sanitize(patientCase.MaterializedSlice.ClusterId)
+                        + "|" + Sanitize(patientCase.MaterializedSlice.DepartmentId)
+                        + "|" + patientCase.MaterializedSlice.Version.ToString(CultureInfo.InvariantCulture)
+                        + "|" + patientCase.MaterializedSlice.WaitingTransferCommit
+                        + "|" + Sanitize(patientCase.MaterializedSlice.PendingTargetDepartmentId)
+                        + "|" + Sanitize(patientCase.MaterializedSlice.LastFingerprint)
+                        + "|" + JoinList(patientCase.MaterializedSlice.VisibleProblemIds)
+                        + "|" + JoinList(patientCase.MaterializedSlice.IntentIds)
+                        + "|" + JoinList(patientCase.MaterializedSlice.ReservedIntentIds)
+                        + "|" + JoinList(patientCase.MaterializedSlice.RunningIntentIds)
+                        + "|" + JoinList(patientCase.MaterializedSlice.ActiveLabIntentIds)
+                        + "|" + JoinList(patientCase.MaterializedSlice.ActiveTreatmentIntentIds)
+                        + "|" + JoinList(patientCase.MaterializedSlice.VanillaPlannedExaminations)
+                        + "|" + JoinList(patientCase.MaterializedSlice.VanillaPlannedTreatments)
+                        + "|" + EncodeBindings(patientCase.MaterializedSlice.Bindings));
+
+                    lines.Add("CP|" + Sanitize(patientCase.CompatibilityProjection.ProjectedDiagnosisId)
+                        + "|" + Sanitize(patientCase.CompatibilityProjection.ProjectedClusterId)
+                        + "|" + Sanitize(patientCase.CompatibilityProjection.ProjectedDepartmentId)
+                        + "|" + Sanitize(patientCase.CompatibilityProjection.ProjectedHazard)
+                        + "|" + Sanitize(patientCase.CompatibilityProjection.ProjectedDiagnosisState)
+                        + "|" + patientCase.CompatibilityProjection.BlocksVanillaDischarge
+                        + "|" + JoinList(patientCase.CompatibilityProjection.ProjectedSymptomIds)
+                        + "|" + Sanitize(patientCase.CompatibilityProjection.Reason)
+                        + "|" + patientCase.CompatibilityProjection.UpdatedAtHours.ToString(CultureInfo.InvariantCulture));
                 }
 
                 File.WriteAllLines(path, lines.ToArray());
@@ -11154,6 +11720,105 @@ namespace ProjectHospital.AutoLabBalancer
             catch (Exception ex)
             {
                 Log("Failed to save patient cases: " + ex.Message);
+            }
+        }
+
+        private static void ParseJoinedList(string text, List<string> target)
+        {
+            if (target == null)
+            {
+                return;
+            }
+
+            target.Clear();
+            if (string.IsNullOrEmpty(text))
+            {
+                return;
+            }
+
+            var parts = text.Split(',');
+            for (var i = 0; i < parts.Length; i++)
+            {
+                if (!string.IsNullOrEmpty(parts[i]))
+                {
+                    target.Add(parts[i]);
+                }
+            }
+        }
+
+        private static string JoinList(List<string> values)
+        {
+            if (values == null || values.Count == 0)
+            {
+                return string.Empty;
+            }
+
+            return string.Join(",", values.ToArray());
+        }
+
+        private static string EncodeBindings(List<MaterializedBinding> bindings)
+        {
+            if (bindings == null || bindings.Count == 0)
+            {
+                return string.Empty;
+            }
+
+            var encoded = new List<string>(bindings.Count);
+            for (var i = 0; i < bindings.Count; i++)
+            {
+                var binding = bindings[i];
+                if (binding == null)
+                {
+                    continue;
+                }
+
+                encoded.Add(binding.Kind + "~"
+                    + Sanitize(binding.BoundId) + "~"
+                    + Sanitize(binding.IntentId) + "~"
+                    + Sanitize(binding.ProcedureId) + "~"
+                    + Sanitize(binding.DepartmentId) + "~"
+                    + Sanitize(binding.Description));
+            }
+
+            return string.Join("^", encoded.ToArray());
+        }
+
+        private static void ParseBindings(string text, List<MaterializedBinding> target)
+        {
+            if (target == null)
+            {
+                return;
+            }
+
+            target.Clear();
+            if (string.IsNullOrEmpty(text))
+            {
+                return;
+            }
+
+            var bindings = text.Split('^');
+            for (var i = 0; i < bindings.Length; i++)
+            {
+                if (string.IsNullOrEmpty(bindings[i]))
+                {
+                    continue;
+                }
+
+                var parts = bindings[i].Split('~');
+                if (parts.Length < 6)
+                {
+                    continue;
+                }
+
+                target.Add(new MaterializedBinding
+                {
+                    Kind = (MaterializedBindingKind)Enum.Parse(typeof(MaterializedBindingKind), parts[0]),
+                    BoundId = parts[1],
+                    IntentId = parts[2],
+                    ProcedureId = parts[3],
+                    DepartmentId = parts[4],
+                    Description = parts[5]
+                });
             }
         }
 
@@ -11439,7 +12104,9 @@ namespace ProjectHospital.AutoLabBalancer
 
         private static string Sanitize(string text)
         {
-            return string.IsNullOrEmpty(text) ? string.Empty : text.Replace("|", "/").Replace("\r", " ").Replace("\n", " ");
+            return string.IsNullOrEmpty(text)
+                ? string.Empty
+                : text.Replace("|", "/").Replace("~", "-").Replace("^", "/").Replace("\r", " ").Replace("\n", " ");
         }
 
         private static string MakeSafeFileName(string text)
@@ -11590,6 +12257,15 @@ namespace ProjectHospital.AutoLabBalancer
     {
         private static void Postfix(BehaviorPatient __instance, ProcedureScript procedureScript)
         {
+            var scriptTypeName = procedureScript == null ? string.Empty : procedureScript.GetType().Name;
+            if (scriptTypeName.IndexOf("DoctorsInterview", StringComparison.OrdinalIgnoreCase) < 0
+                && scriptTypeName.IndexOf("ReceptionFast", StringComparison.OrdinalIgnoreCase) < 0)
+            {
+                var procedure = __instance == null ? null : __instance.GetComponent<ProcedureComponent>();
+                var examination = procedure == null ? null : procedure.GetLastFinishedExamination();
+                MedicalCaseRewriteService.EmitDiagnosticEventForFinishedExamination(__instance, examination);
+            }
+
             MedicalCaseRewriteService.RevealSymptomsFromLastExamination(__instance, procedureScript);
         }
     }
@@ -11908,6 +12584,18 @@ namespace ProjectHospital.AutoLabBalancer
         private static void Postfix(ProcedureComponent __instance, QueueTracePatchState __state)
         {
             var patient = __state == null ? QueueTracePatchHelpers.ResolvePatient(__instance) : __state.Patient;
+            if (patient != null && __instance != null && __instance.m_state != null && __instance.m_state.m_procedureQueue != null)
+            {
+                var labProcedures = __instance.m_state.m_procedureQueue.m_labProcedures;
+                if (labProcedures != null)
+                {
+                    foreach (var labProcedure in labProcedures)
+                    {
+                        MedicalCaseRewriteService.EmitDiagnosticEventForLabProcedure(patient, labProcedure);
+                    }
+                }
+            }
+
             TraceLoggingService.LogQueueDiff(patient, __state == null ? null : __state.QueueBefore, TraceLoggingService.CaptureQueueState(patient), "ProcedureComponent.FinishLabProceduresWithResultsReady", "finish_lab_procedures_with_results_ready");
         }
     }
@@ -12016,9 +12704,9 @@ namespace ProjectHospital.AutoLabBalancer
     [HarmonyPatch(typeof(CharacterPanelPatientPanelController), "SendPatientToAnotherHospital")]
     internal static class MedicalCaseManualPanelTransferPatch
     {
-        private static void Postfix(CharacterPanelPatientPanelController __instance)
+        private static bool Prefix(CharacterPanelPatientPanelController __instance)
         {
-            MedicalCaseRewriteService.MarkManualPanelTransfer(__instance);
+            return MedicalCaseRewriteService.ShouldRunManualPanelTransfer(__instance);
         }
     }
 
@@ -12251,7 +12939,7 @@ namespace ProjectHospital.AutoLabBalancer
                 : __instance.m_stateData.m_procedureScene.m_patient.GetEntity().GetComponent<BehaviorPatient>();
             if (patient != null)
             {
-                MedicalCaseRewriteService.RevealSymptomsFromLastExamination(patient, __instance);
+                MedicalCaseRewriteService.EmitDiagnosticEventForInterview(patient, __instance, DiagnosticEventKind.Interview);
             }
         }
     }
@@ -12266,7 +12954,7 @@ namespace ProjectHospital.AutoLabBalancer
                 : __instance.m_stateData.m_procedureScene.m_patient.GetEntity().GetComponent<BehaviorPatient>();
             if (patient != null)
             {
-                MedicalCaseRewriteService.RevealSymptomsFromLastExamination(patient, __instance);
+                MedicalCaseRewriteService.EmitDiagnosticEventForInterview(patient, __instance, DiagnosticEventKind.ReceptionFast);
             }
         }
     }

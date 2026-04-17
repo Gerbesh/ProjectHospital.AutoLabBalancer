@@ -214,9 +214,13 @@ Require-EnumValues "TreatmentType" @("RECEIPT", "PRESCRIPTION", "SURGERY") | Out
 Require-Field "Lopital.ProcedureComponentPersistentData" "m_procedureQueue" | Out-Null
 Require-Field "Lopital.ProcedureQueue" "m_plannedTreatmentStates" | Out-Null
 Require-Field "Lopital.ProcedureQueue" "m_activeTreatmentStates" | Out-Null
+Require-Field "Lopital.ProcedureQueue" "m_activeExamination" | Out-Null
+Require-Field "Lopital.ProcedureQueue" "m_plannedExaminationStates" | Out-Null
+Require-Field "Lopital.ProcedureQueue" "m_labProcedures" | Out-Null
 Require-Field "Lopital.ProcedureQueue" "m_finishedTreatmentStates" | Out-Null
 Require-Field "PlannedTreatmentState" "m_treatment" | Out-Null
 Require-Field "PlannedTreatmentState" "m_reservationStatus" | Out-Null
+Require-Field "Lopital.ProcedureComponentPersistentData" "m_reservedProcedureScript" | Out-Null
 
 Write-Host "Section: Productivity tweaks"
 # Productivity: OR cleanup, free-time suppression, reservations, transport, emergency movement
